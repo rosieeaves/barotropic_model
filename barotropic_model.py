@@ -5,6 +5,7 @@ import pyfftw.interfaces.numpy_fft as fftw
 import matplotlib.pyplot as plt
 import xarray as xr
 import scipy as sp
+import scipy.sparse.linalg as linalg
 from functools import wraps
 
 #%%
@@ -16,7 +17,7 @@ class Barotropic:
         try:
             np.shape(bathy) == (Ny+1,Nx+1)
         except ValueError:
-            print('bathy ust have shape (Ny+1,Nx+1) to be defined on the grid corners.')
+            print('bathy must have shape (Ny+1,Nx+1) to be defined on the grid corners.')
         else:
 
             self.d = d
@@ -81,7 +82,7 @@ class Barotropic:
             for j in range(self.Ny+1):
                 stream[j][i] = const*(1-np.cos(np.pi*self.XG[i]/self.Lx)**50)*(1-np.cos(np.pi*self.YG[j]/self.Ly)**50)*psi[j][i]
         
-        self.psi_0 = xr.DataArray(
+        self.psibar_0 = xr.DataArray(
             stream,
             dims = ['YG','XG'],
             coords = {
@@ -90,11 +91,48 @@ class Barotropic:
             }
         )
 
+        #calculate initial xibar from initial psibar
+        xibar_0 = self.psibar_0.differentiate(coord='XG').differentiate(coord='XG') + \
+            self.psibar_0.differentiate(coord='YG').differentiate(coord='YG')
+        self.xibar_0 = xr.DataArray(
+            xibar_0,
+            dims = ['YG','XG'],
+            coords = {
+                'YG': self.YG,
+                'XG': self.XG
+            }
+        )
+
+        self.xibar_0 = xibar_0
+
+        ubar_0 = -self.psibar_0.differentiate(coord='YG')
+
+        self.ubar_0 = xr.DataArray(
+            ubar_0,
+            dims = ['YG','XG'],
+            coords = {
+                'YG': self.YG,
+                'XG': self.XG
+            }
+        )
+
+        vbar_0 = self.psibar_0.differentiate(coord='XG')
+
+        self.vbar_0 = xr.DataArray(
+            ubar_0,
+            dims = ['YG','XG'],
+            coords = {
+                'YG': self.YG,
+                'XG': self.XG
+            }
+        )
+
+
     def model(self,dt,Nt,gamma_q,r):
 
         try:
             print('try')
-            self.psi_0
+            self.psibar_0
 
         except AttributeError:
             print('Run init_psi() before running model to generate initial conditions')
@@ -110,31 +148,23 @@ class Barotropic:
             self.gamma_q = gamma_q
             self.r = r
 
-            #calculate initial xibar from initial psibar
-            xibar_0 = self.psi_0.differentiate(coord='XG').differentiate(coord='XG') + self.psi_0.differentiate(coord='YG').differentiate(coord='YG')
-            self.xibar_0 = xr.DataArray(
-                xibar_0,
-                dims = ['YG','XG'],
-                coords = {
-                    'YG': self.YG,
-                    'XG': self.XG
-                }
-            )
-            xibar_n = xibar_0
-            # create xibar_np1 array
+            # initialise parameters pisbar, zetabar, and grad xibar components
+            psibar_n = self.psibar_0
+            psibar_np1 = np.zeros_like(psibar_n)
+            xibar_n = self.xibar_0
             xibar_np1 = np.zeros_like(xibar_n)
+            zetabar_n = self.xibar_0+self.f
+            xibar_dx_n = np.zeros_like(xibar_n)
+            xibar_dy_n = np.zeros_like(xibar_n)
+            ubar_n = self.ubar_0
+            ubar_np1 = np.zeros_like(ubar_n)
+            vbar_n = self.vbar_0
+            vbar_np1 = np.zeros_like(vbar_n)
 
             # initialise parameters to store F_n, F_nm1 and F_nm2 to calculate xibar_np1 with AB3
             F_n = np.zeros_like(xibar_n)
             F_nm1 = np.zeros_like(xibar_n)
             F_nm2 = np.zeros_like(xibar_n)
-
-            # initialise parameters pisbar, zetabar, and grad xibar components
-            psibar_n = self.psi_0
-            psibar_np1 = np.zeros_like(psibar_n)
-            zetabar_n = xibar_0+self.f
-            xibar_dx_n = np.zeros_like(xibar_n)
-            xibar_dy_n = np.zeros_like(xibar_n)
 
             # time stepping function
 
@@ -145,7 +175,9 @@ class Barotropic:
                     # advection term
                     print('adv')
                     zetabar_n = kw.get('xibar_n') + self.f
-                    adv_n = self.advection(zetabar_n,kw.get('psibar_n'))
+                    print(np.shape(zetabar_n))
+                    print(np.shape(kw.get('psibar_n')))
+                    adv_n = self.advection(zetabar_n,kw.get('ubar_n'),kw.get('vbar_n'))
 
                     # flux term
 
@@ -161,9 +193,35 @@ class Barotropic:
                     xibar_np1 = scheme(kw.get('xibar_n'),self.dt,F_n,kw.get('F_nm1'),kw.get('F_nm2'))
 
                     # SOLVE FOR PSIBAR
-                    psibar_np1 = np.linalg.solve(self.matrix_elliptic,np.array(xibar_np1).flatten())
-                    psibar_np1 = psibar_np1.reshape((self.NyG,self.NxG))
+                    psibar_np1 = self.LU.solve(np.array(xibar_np1).flatten())
+                    #psibar_np1 = linalg.spsolve(self.matrix_elliptic,np.array(xibar_np1).flatten())
+                    psibar_np1 = xr.DataArray(
+                        psibar_np1.reshape((self.NyG,self.NxG)),
+                        dims = ['YG','XG'],
+                        coords = {
+                            'YG': self.YG,
+                            'XG': self.XG
+                        }
+                    )
                     print(np.shape(psibar_np1))
+
+                    ubar_np1 = xr.DataArray(
+                        -psibar_np1.differentiate(coord='YG'),
+                        dims = ['YG','XG'],
+                        coords = {
+                            'YG': self.YG,
+                            'XG': self.XG
+                        }
+                    )
+
+                    vbar_np1 = xr.DataArray(
+                        psibar_np1.differentiate(coord='XG'),
+                        dims = ['YG','XG'],
+                        coords = {
+                            'YG': self.YG,
+                            'XG': self.XG
+                        }
+                    )
 
                     # DUMP XIBAR AND PSIBAR AT CERTAIN INTERVALS
 
@@ -176,10 +234,14 @@ class Barotropic:
                     xibar_np1 = np.zeros_like(xibar_np1)
                     psibar_n = psibar_np1.copy()
                     psibar_np1 = np.zeros_like(psibar_np1)
+                    ubar_n = ubar_np1.copy()
+                    ubar_np1 = np.zeros_like(ubar_n)
+                    vbar_n = vbar_np1.copy()
+                    vbar_np1 = np.zeros_like(vbar_n)
 
                     print('return')
 
-                    return F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1
+                    return F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1, ubar_n, ubar_np1, vbar_n, vbar_np1
                 return wrapper
 
             def forward_Euler(xibar_n,dt,F_n,F_nm1,F_nm2):
@@ -194,55 +256,63 @@ class Barotropic:
             print('ts=1')
             func_to_run = time_step(scheme=forward_Euler,\
                 F_nm2=F_nm2, F_nm1=F_nm1, F_n=F_n, xibar_n=xibar_n, xibar_np1=xibar_np1, \
-                    psibar_n=psibar_n, psibar_np1=psibar_np1)
-            F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1 = func_to_run()
+                    psibar_n=psibar_n, psibar_np1=psibar_np1,ubar_n=ubar_n,ubar_np1=ubar_np1,\
+                        vbar_n=vbar_n,vbar_np1=vbar_np1)
+            F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1, ubar_n, ubar_np1, vbar_n, vbar_np1 = func_to_run()
             print('ts=2')
             func_to_run = time_step(scheme=forward_Euler,\
                 F_nm2=F_nm2, F_nm1=F_nm1, F_n=F_n, xibar_n=xibar_n, xibar_np1=xibar_np1, \
-                    psibar_n=psibar_n, psibar_np1=psibar_np1)
-            F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1 = func_to_run()
+                    psibar_n=psibar_n, psibar_np1=psibar_np1,ubar_n=ubar_n,ubar_np1=ubar_np1,\
+                        vbar_n=vbar_n,vbar_np1=vbar_np1)
+            F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1, ubar_n, ubar_np1, vbar_n, vbar_np1 = func_to_run()
 
             # all other time steps with AB3:
             for t in range(3,Nt):
                 print('ts='+str(t))
                 func_to_run = time_step(scheme=AB3,\
                 F_nm2=F_nm2, F_nm1=F_nm1, F_n=F_n, xibar_n=xibar_n, xibar_np1=xibar_np1, \
-                    psibar_n=psibar_n, psibar_np1=psibar_np1)
-                F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1 = func_to_run()
+                    psibar_n=psibar_n, psibar_np1=psibar_np1,ubar_n=ubar_n,ubar_np1=ubar_np1,\
+                        vbar_n=vbar_n,vbar_np1=vbar_np1)
+                F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1, ubar_n, ubar_np1, vbar_n, vbar_np1 = func_to_run()
 
-            return psibar_n
+            return psibar_n, xibar_n
 
 
 
-    def advection(self,zetabar,psibar):
-
-        # psibar and zetabar have coordinates [y,x]
+    def advection_AJ(self,zetabar,psibar):
 
         print('J start')
-        print(np.shape(zetabar))
-        print(np.shape(psibar))
 
-        J = np.zeros((self.Ny+1,self.Nx+1))
+        J = psibar[2:,1:-1]*(3*zetabar[1:-1,2:] - 3*zetabar[1:-1,:-2] + zetabar[2:,2:] - zetabar[:-2,:-2]) + \
+            psibar[:-2,1:-1]*(-3*zetabar[1:-1,2:] + 3*zetabar[1:-1,:-2]) + \
+                psibar[1:-1,2:]*(-3*zetabar[2:,1:-1] + 3*zetabar[:-2,1:-1] - zetabar[2:,2:] + zetabar[:-2,:-2]) + \
+                    psibar[1:-1,:-2]*(3*zetabar[2:,1:-1] - 3*zetabar[:-2,1:-1]) + \
+                        psibar[2:,2:]*(zetabar[1:-1,2:] - zetabar[2:,1:-1]) + \
+                            psibar[:-2,:-2]*(zetabar[1:-1,2:] + zetabar[2:,1:-1])
 
-        for i in range(1,self.Nx):
-            for j in range(1,self.Ny):
+        J = np.pad(J,((2,2),(2,2)),constant_values=0)
 
-                J[j,i] = (1/(12*self.d**2))*(psibar[j+1,i]*(3*zetabar[j,i+1] - 3*zetabar[j,i-1] + zetabar[j+1,i+1] - zetabar[j-1,i-1]) + \
+        print(J)
 
-                            psibar[j-1,i]*(-3*zetabar[j,i+1] + 3*zetabar[j,i-1]) + \
-
-                            psibar[j,i+1]*(-3*zetabar[j+1,i] + 3*zetabar[j-1,i] - zetabar[j+1,i+1] + zetabar[j-1,i-1]) + \
-
-                            psibar[j,i-1]*(3*zetabar[j+1,i] - 3*zetabar[j-1,i]) + \
-
-                            psibar[j+1,i+1]*(zetabar[j,i+1] - zetabar[j+1,i]) + \
-
-                            psibar[j-1,i-1]*(zetabar[j,i+1] - zetabar[j+1,i])
-                
-                )
-        
-        print('J done')
         return J
+
+    def advection(self,zeta,u,v):
+        print('adv start')
+
+        adv = (self.d/8)*(zeta[1:-1,1:-1]*(v[2:,1:-1] + v[2:,2:] - v[:-2,1:-1] - v[:-2,2:] + u[1:-1,2:] + \
+            u[2:,2:] - u[1:-1,:-2] - u[2:,:-2]) + \
+                zeta[2:,1:-1]*(v[1:-1,1:-1] + v[1:-1,2:] + v[2:,1:-1] + v[2:,2:]) + \
+                    zeta[1:-1,2:]*(u[1:-1,1:-1] + u[2:,1:-1] + u[1:-1,2:] + u[2:,2:]) - \
+                        zeta[:-2,1:-1]*(v[1:-1,1:-1] + v[1:-1,2:] + v[:-2,1:-1] + v[:-2,2:]) - \
+                            zeta[1:-1,:-2]*(u[1:-1,1:-1] + u[2:,1:-1] + u[1:-1,:-2] + u[2:,:-2]))
+
+        print('pad')
+
+        adv = np.pad(adv,((2,2),(2,2)),constant_values=0)
+
+        return adv
+
+
 
     def elliptic(self):
 
@@ -292,36 +362,63 @@ class Barotropic:
         diags_mj = np.concatenate((np.zeros(self.NxG),np.tile(centre_mj,self.NyG-2),np.zeros(self.NxG)))
         diag_mj = np.diagflat(diags_mj[self.NxG:],k=-self.NxG)*H_5.flatten()
 
-        matrix_elliptic = diagonal + diag_pi + diag_mi + diag_pj + diag_mj + diagonal_ones
+        diagonal_total = diagonal + diag_pi + diag_mi + diag_pj + diag_mj + diagonal_ones
+        self.diagonal = diagonal_total
+        LU = linalg.splu(sp.sparse.csc_matrix(diagonal_total))
 
-        self.matrix_elliptic = matrix_elliptic
+        self.LU = LU
+        
 
     
 
 
 
 #%%
-Nx = 3
-Ny= 3
+Nx = 50
+Ny = 50
 test = Barotropic(d=5000,Nx=Nx,Ny=Ny,bathy=100*np.ones((Ny+1,Nx+1)),f0=0.7E-4,beta=2E-11)
 
 #%%
-test.init_psi(k_peak=2,const=1)
+test.init_psi(k_peak=5,const=1)
 
 X,Y = np.meshgrid(test.XG,test.YG)
 fig,axs = plt.subplots(1,1)
-axs.contour(X,Y,test.psi_0)
+axs.contour(X,Y,test.psibar_0)
+axs.set_aspect(1)
+plt.show()
+
+X,Y = np.meshgrid(test.XG,test.YG)
+fig,axs = plt.subplots(1,1)
+axs.contour(X,Y,test.xibar_0)
 axs.set_aspect(1)
 plt.show()
 
 # %%
-out = test.model(dt=10,Nt=10,gamma_q=0.1,r=0.01)
+out_psi,out_xi = test.model(dt=10,Nt=20,gamma_q=0.1,r=0.01)
 
 # %%
 X,Y = np.meshgrid(test.XG,test.YG)
 fig,axs = plt.subplots(1,1)
-axs.contour(X,Y,out)
+axs.contour(X,Y,out_psi)
 axs.set_aspect(1)
 plt.show()
+
+X,Y = np.meshgrid(test.XG,test.YG)
+fig,axs = plt.subplots(1,1)
+axs.contour(X,Y,out_xi)
+axs.set_aspect(1)
+plt.show()
+
+
+# %%
+test.advection(zetabar=out_xi,psibar=out_psi)
+
+# %%
+print(out_xi)
+print(out_psi)
+
+# %%
+
+test.advection(zeta=test.xibar_0,u=test.ubar_0,v=test.vbar_0)
 
 # %%
