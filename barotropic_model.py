@@ -13,21 +13,37 @@ class Barotropic:
 
     def __init__(self,d,Nx,Ny,bathy,f0,beta):
 
-        self.d = d
-        self.dx = d
-        self.dy = d
-        self.Nx = Nx
-        self.Ny = Ny 
-        self.Lx = int(d*Nx)
-        self.Ly = int(d*Ny)
-        self.bathy = bathy
-        self.f0 = f0 
-        self.beta = beta
-        self.f = [(f0+(j*beta*self.dy))*np.ones(Nx+1) for j in range(self.Ny+1)]      
-        self.XG = [i*self.dx for i in range(self.Nx+1)]
-        self.YG = [j*self.dy for j in range(self.Ny+1)]
-        self.XC = [(i+0.5)*self.dx for i in range(self.Nx)]
-        self.YC = [(j+0.5)*self.dy for j in range(self.Ny)]
+        try:
+            np.shape(bathy) == (Ny+1,Nx+1)
+        except ValueError:
+            print('bathy ust have shape (Ny+1,Nx+1) to be defined on the grid corners.')
+        else:
+
+            self.d = d
+            self.dx = d
+            self.dy = d
+            self.Nx = Nx
+            self.Ny = Ny 
+            self.Lx = int(d*Nx)
+            self.Ly = int(d*Ny)
+            self.f0 = f0 
+            self.beta = beta
+            self.f = [(f0+(j*beta*self.dy))*np.ones(Nx+1) for j in range(self.Ny+1)]      
+            self.XG = [i*self.dx for i in range(self.Nx+1)]
+            self.YG = [j*self.dy for j in range(self.Ny+1)]
+            self.XC = [(i+0.5)*self.dx for i in range(self.Nx)]
+            self.YC = [(j+0.5)*self.dy for j in range(self.Ny)]
+            self.NxG = self.Nx + 1
+            self.NyG = self.Ny + 1
+            self.bathy = xr.DataArray(
+                bathy,
+                dims = ['YG', 'XG'],
+                coords = {
+                    'YG': self.YG,
+                    'XG': self.XG
+                }
+            )
+        
 
     def init_psi(self,k_peak,const):
 
@@ -142,18 +158,12 @@ class Barotropic:
                     F_n = -adv_n - D_n # - div_flux_n
 
                     print('xibar')
-                    xibar_np1 = scheme(kw.get('xibar_n'),self.dt,F_n)
+                    xibar_np1 = scheme(kw.get('xibar_n'),self.dt,F_n,kw.get('F_nm1'),kw.get('F_nm2'))
 
                     # SOLVE FOR PSIBAR
-                    # 1. solve xibar = div A using equation ellip1 A = xibar
-                    print('A')
-                    A = np.linalg.solve(self.ellip1,np.array(xibar_np1).flatten())
-                    # 2. B=A*H using H_ellip (H_ellip has repeated values for x and y components of A)
-                    print('B')
-                    B = A*self.H_ellip
-                    # 3. solve B = grad psibar using equation ellip2 psibar = B
-                    print('psibar_np1')
-                    psibar_np1 = np.linalg.solve(self.ellip2,B)
+                    psibar_np1 = np.linalg.solve(self.matrix_elliptic,np.array(xibar_np1).flatten())
+                    psibar_np1 = psibar_np1.reshape((self.NyG,self.NxG))
+                    print(np.shape(psibar_np1))
 
                     # DUMP XIBAR AND PSIBAR AT CERTAIN INTERVALS
 
@@ -172,7 +182,7 @@ class Barotropic:
                     return F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1
                 return wrapper
 
-            def forward_Euler(xibar_n,dt,F_n):
+            def forward_Euler(xibar_n,dt,F_n,F_nm1,F_nm2):
                 xibar_np1 = xibar_n + dt*F_n
                 return xibar_np1
 
@@ -193,12 +203,12 @@ class Barotropic:
             F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1 = func_to_run()
 
             # all other time steps with AB3:
-            for t in range(2,Nt):
+            for t in range(3,Nt):
                 print('ts='+str(t))
-                func_to_run = time_step(scheme=forward_Euler,\
+                func_to_run = time_step(scheme=AB3,\
                 F_nm2=F_nm2, F_nm1=F_nm1, F_n=F_n, xibar_n=xibar_n, xibar_np1=xibar_np1, \
                     psibar_n=psibar_n, psibar_np1=psibar_np1)
-            F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1 = func_to_run()
+                F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1 = func_to_run()
 
             return psibar_n
 
@@ -209,6 +219,8 @@ class Barotropic:
         # psibar and zetabar have coordinates [y,x]
 
         print('J start')
+        print(np.shape(zetabar))
+        print(np.shape(psibar))
 
         J = np.zeros((self.Ny+1,self.Nx+1))
 
@@ -234,122 +246,63 @@ class Barotropic:
 
     def elliptic(self):
 
-        # create matrices to be used to solve elliptic function for psibar
-        # 1. solve xibar = div A where A = (grad psibar)/H
-        # 2. B = A*H
-        # 3. solve grad psibar = B
+        # create coefficient matrices
 
-        # 1. matrix to solve xibar = div A where A = (grad psibar)/H
-        ellip1 = np.zeros((self.Nx*self.Ny,self.Nx*self.Ny*2),dtype=object)
-        #ellip1 = np.zeros((self.Nx*self.Ny,self.Nx*self.Ny*2),dtype=object)
+        H_2 = np.array([np.concatenate(([(1/(self.bathy[j,0]*self.d**2) + (self.bathy[j,1] - self.bathy[j,0])/(self.d*self.bathy[j,0]**2))],\
+                        [(1/(self.bathy[j,i]*self.d**2) + (self.bathy[j,i+1] - self.bathy[j,i-1])/(2*self.d*self.bathy[j,i]**2)) for i in range(1,self.NxG-1)],\
+                            [(1/(self.bathy[j,self.NxG-1]*self.d**2) + (self.bathy[j,self.NxG-1] - self.bathy[j,self.NxG-2])/(self.d*self.bathy[j,self.NxG-1]**2))])) for j in range(self.NyG)])
 
-        for i in range(self.Nx):
-            for j in range(self.Ny):
-                A = np.zeros((self.Ny,self.Nx,2)) # A[j,i,0] = A[j,i]^x, A[j,i,1] = A[j,i]^y
-                if i == 0 and j == 0:
-                    A[0,1,0] = 1/self.dx
-                    A[0,0,0] = -1/self.dx
-                    A[1,0,1] = 1/self.dy
-                    A[0,0,1] = -1/self.dy
+        H_3 = np.array([np.concatenate(([(1/(self.bathy[j,0]*self.d**2) - (self.bathy[j,1] - self.bathy[j,0])/(self.d*self.bathy[j,0]**2))],\
+                        [(1/(self.bathy[j,i]*self.d**2) - (self.bathy[j,i+1] - self.bathy[j,i-1])/(2*self.d*self.bathy[j,i]**2)) for i in range(1,self.NxG-1)],\
+                            [(1/(self.bathy[j,self.NxG-1]*self.d**2) - (self.bathy[j,self.NxG-1] - self.bathy[j,self.NxG-2])/(self.d*self.bathy[j,self.NxG-1]**2))])) for j in range(self.NyG)])
 
-                elif i ==0 and j == self.Ny-1:
-                    A[self.Ny-1,1,0] = 1/self.dx
-                    A[self.Ny-1,0,0] = -1/self.dx
-                    A[self.Ny-1,0,1] = 1/self.dy
-                    A[self.Ny-2,0,1] = -1/self.dy
+        H_4 = np.array([np.concatenate(([(1/(self.bathy[0,i]*self.d**2) + (self.bathy[1,i] - self.bathy[0,i])/(self.d*self.bathy[0,i]**2))],\
+                        [(1/(self.bathy[j,i]*self.d**2) + (self.bathy[j+1,i] - self.bathy[j-1,i])/(2*self.d*self.bathy[j,i]**2)) for j in range(1,self.NyG-1)],\
+                            [(1/(self.bathy[self.NyG-1,i]*self.d**2) + (self.bathy[self.NyG-1,i] - self.bathy[self.NyG-2,i])/(self.d*self.bathy[self.NyG-1,i]**2))])) for i in range(self.NxG)])
 
-                elif i == self.Nx-1 and j ==0:
-                    A[0,self.Nx-1,0] = 1/self.dx
-                    A[0,self.Nx-2,0] = -1/self.dx
-                    A[1,self.Nx-1,1] = 1/self.dy
-                    A[0,self.Nx-1,1] = -1/self.dy 
+        H_5 = np.array([np.concatenate(([(1/(self.bathy[0,i]*self.d**2) - (self.bathy[1,i] - self.bathy[0,i])/(self.d*self.bathy[0,i]**2))],\
+                        [(1/(self.bathy[j,i]*self.d**2) - (self.bathy[j+1,i] - self.bathy[j-1,i])/(2*self.d*self.bathy[j,i]**2)) for j in range(1,self.NyG-1)],\
+                            [(1/(self.bathy[self.NyG-1,i]*self.d**2) - (self.bathy[self.NyG-1,i] - self.bathy[self.NyG-2,i])/(self.d*self.bathy[self.NyG-1,i]**2))])) for i in range(self.NxG)])
 
-                elif i == self.Nx-1 and j == self.Ny-1:
-                    A[self.Ny-1,self.Nx-1,0] = 1/self.dx
-                    A[self.Ny-1,self.Nx-2,0] = -1/self.dx
-                    A[self.Ny-1,self.Nx-1,1] = 1/self.dy 
-                    A[self.Ny-2,self.Nx-1,1] = -1/self.dy 
+        H_6 = np.array([[-4/(self.bathy[j,i]*self.d**2) for i in range(self.NxG)]for j in range(self.NyG)])
 
-                elif i == 0:
-                    A[j,1,0] = 1/self.dx 
-                    A[j,0,0] = -1/self.dx
-                    A[j+1,0,1] = 1/(2*self.dy)
-                    A[j-1,0,1] = -1/(2*self.dy) 
+        # create matrix to solve for psibar
 
-                elif i == self.Nx-1:
-                    A[j,self.Nx-1,0] = 1/self.dx
-                    A[j,self.Nx-2,0] = -1/self.dx 
-                    A[j+1,self.Nx-1,1] = 1/(2*self.dy)
-                    A[j-1,self.Nx-1,1] = -1/(2*self.dy)
+        centre_ones = np.concatenate(([1],[0 for i in range(1,self.NxG-1)],[1]))
+        diags_ones = np.concatenate((np.ones(self.NxG),np.tile(centre_ones,self.NyG-2),np.ones(self.NxG)))
+        diagonal_ones = np.diagflat(diags_ones)
 
-                elif j ==0:
-                    A[0,i+1,0] = 1/(2*self.dx) 
-                    A[0,i-1,0] = -1/(2*self.dx)
-                    A[1,i,1] = 1/self.dy 
-                    A[0,i,1] = -1/self.dy 
+        centre = np.concatenate(([0],[1 for i in range(1,self.NxG-1)],[0]))
+        diags = np.concatenate((np.zeros(self.NxG),np.tile(centre,self.NyG-2),np.zeros(self.NxG)))
+        diagonal = np.diagflat(diags)*H_6.flatten()
 
-                elif j == self.Ny-1:
-                    A[self.Ny-1,i+1,0] = 1/(2*self.dx) 
-                    A[self.Ny-1,i-1,0] = -1/(2*self.dx) 
-                    A[self.Ny-1,i,1] = 1/self.dy 
-                    A[self.Ny-2,i,1] = -1/self.dy
+        centre_pi = np.concatenate(([0],[1 for i in range(1,self.NxG-1)],[0]))
+        diags_pi = np.concatenate((np.zeros(self.NxG),np.tile(centre_pi,self.NyG-2),np.zeros(self.NxG)))
+        diag_pi = np.diagflat(diags_pi[:len(diags_pi)-1],k=1)*H_2.flatten()
 
-                else:
-                    A[j,i+1,0] = 1/(2*self.dx) 
-                    A[j,i-1,0] = -1/(2*self.dx) 
-                    A[j+1,i,1] = 1/(2*self.dy) 
-                    A[j-1,i,1] = -1/(2*self.dy) 
+        centre_mi = np.concatenate(([0],[1 for i in range(1,self.NxG-1)],[0]))
+        diags_mi = np.concatenate((np.zeros(self.NxG),np.tile(centre_mi,self.NyG-2),np.zeros(self.NxG)))
+        diag_mi = np.diagflat(diags_mi[1:],k=-1)*H_3.flatten()
 
-                ellip1[j*self.Nx+i] = A.flatten()
-        
-        self.ellip1 = ellip1
+        centre_pj = np.concatenate(([0],[1 for i in range(1,self.NxG-1)],[0]))
+        diags_pj = np.concatenate((np.zeros(self.NxG),np.tile(centre_pj,self.NyG-2),np.zeros(self.NxG)))
+        diag_pj = np.diagflat(diags_pj[:len(diags_pi)-self.NxG],k=self.NxG)*H_4.flatten()
 
-        # 2. B=A*H
-        # need H flattened and with repeated values for x and y components of A
-        self.H_ellip = np.repeat(self.bathy.flatten(),repeats=2,axis=0)
+        centre_mj = np.concatenate(([0],[1 for i in range(1,self.NxG-1)],[0]))
+        diags_mj = np.concatenate((np.zeros(self.NxG),np.tile(centre_mj,self.NyG-2),np.zeros(self.NxG)))
+        diag_mj = np.diagflat(diags_mj[self.NxG:],k=-self.NxG)*H_5.flatten()
 
-        # 3. matrix to solve grad psibar = B
-        ellip2 = np.zeros((self.Ny*self.Nx*2,self.Ny*self.Nx))
+        matrix_elliptic = diagonal + diag_pi + diag_mi + diag_pj + diag_mj + diagonal_ones
 
-        for j in range(self.Ny):
-            for i in range(self.Nx):
-                for X in range(2): # X = 0 => x, X = 1 => y
-                    psi_ellip = np.zeros((self.Ny,self.Nx))
+        self.matrix_elliptic = matrix_elliptic
 
-                    if i == 0 and X == 0:
-                        psi_ellip[j,1] = 1/self.dx
-                        psi_ellip[j,0] = -1/self.dx
-
-                    elif i == self.Nx-1 and X == 0:
-                        psi_ellip[j,self.Nx-1] = 1/self.dx
-                        psi_ellip[j,self.Nx-2] = -1/self.dx
-
-                    elif j == 0 and X == 1:
-                        psi_ellip[1,i] = 1/self.dy 
-                        psi_ellip[0,i] = -1/self.dy 
-
-                    elif j == self.Ny-1 and X == 1:
-                        psi_ellip[self.Ny-1,i] = 1/self.dy 
-                        psi_ellip[self.Ny-2,i] = -1/self.dy 
-
-                    elif X == 0:
-                        psi_ellip[j,i+1] = 1/(2*self.dx) 
-                        psi_ellip[j,i-1] = -1/(2*self.dx)
-
-                    else: # should be when X == 1
-                        psi_ellip[j+1,i] = 1/(2*self.dy) 
-                        psi_ellip[j-1,i] = -1/(2*self.dy) 
-                    
-
-                    ellip2[j*self.Nx*2 + i*2 +X] = psi_ellip.flatten()
-
-        self.ellip2 = ellip2
+    
 
 
 
 #%%
-Nx = 100
-Ny=100
+Nx = 3
+Ny= 3
 test = Barotropic(d=5000,Nx=Nx,Ny=Ny,bathy=100*np.ones((Ny+1,Nx+1)),f0=0.7E-4,beta=2E-11)
 
 #%%
@@ -362,15 +315,13 @@ axs.set_aspect(1)
 plt.show()
 
 # %%
-test.model(dt=10,Nt=10,gamma_q=0.1,r=0.01)
+out = test.model(dt=10,Nt=10,gamma_q=0.1,r=0.01)
 
 # %%
 X,Y = np.meshgrid(test.XG,test.YG)
 fig,axs = plt.subplots(1,1)
-axs.contour(X,Y,test.psibar_np1)
+axs.contour(X,Y,out)
 axs.set_aspect(1)
 plt.show()
 
-# %%
-print(test.psibar_np1)
 # %%
