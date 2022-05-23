@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 import xarray as xr
 import scipy as sp
 import scipy.sparse.linalg as linalg
-from functools import wraps
+import matplotlib.colors as colors
+import scipy.interpolate as interp
 
 #%%
 
@@ -27,15 +28,26 @@ class Barotropic:
             self.Ny = Ny 
             self.Lx = int(d*Nx)
             self.Ly = int(d*Ny)
-            self.f0 = f0 
-            self.beta = beta
-            self.f = [(f0+(j*beta*self.dy))*np.ones(Nx+1) for j in range(self.Ny+1)]      
-            self.XG = [i*self.dx for i in range(self.Nx+1)]
-            self.YG = [j*self.dy for j in range(self.Ny+1)]
-            self.XC = [(i+0.5)*self.dx for i in range(self.Nx)]
-            self.YC = [(j+0.5)*self.dy for j in range(self.Ny)]
+            self.XG = np.array([i*self.dx for i in range(self.Nx+1)])
+            self.YG = np.array([j*self.dy for j in range(self.Ny+1)])
+            self.XC = np.array([(i+0.5)*self.dx for i in range(self.Nx)])
+            self.YC = np.array([(j+0.5)*self.dy for j in range(self.Ny)])
             self.NxG = self.Nx + 1
             self.NyG = self.Ny + 1
+
+            self.f0 = f0 
+            self.beta = beta
+            f = np.array([(f0+(j*beta*self.dy))*np.ones(self.NxG) for j in range(self.NyG)])
+
+            self.f = xr.DataArray(
+                f,
+                dims = ['YG','XG'],
+                coords = {
+                    'YG': self.YG,
+                    'XG': self.XG
+                }      
+            )
+
             self.bathy = xr.DataArray(
                 bathy,
                 dims = ['YG', 'XG'],
@@ -46,7 +58,7 @@ class Barotropic:
             )
         
 
-    def init_psi(self,k_peak,const):
+    def gen_init_psi(self,k_peak,const):
 
         rng = np.random.default_rng(seed=1234)
          
@@ -91,47 +103,135 @@ class Barotropic:
             }
         )
 
-        #calculate initial xibar from initial psibar
-        xibar_0 = self.psibar_0.differentiate(coord='XG').differentiate(coord='XG') + \
-            self.psibar_0.differentiate(coord='YG').differentiate(coord='YG')
-        self.xibar_0 = xr.DataArray(
-            xibar_0,
-            dims = ['YG','XG'],
-            coords = {
-                'YG': self.YG,
-                'XG': self.XG
-            }
-        )
+    def init_psi(self,psi):
+        try:
+            np.shape(psi) == ((self.NyG,self.NxG))
+        except ValueError:
+            print('Initial psi must have shape (Ny+1,Nx+1) to be defined on the grid corners.')
+        else:
+            # set zero on boundaries
+            psi_remove = psi[1:-1,1:-1]
+            psi_pad = np.pad(psi_remove,((1,1)),constant_values=0)
+            self.psibar_0 = xr.DataArray(
+                psi_pad,
+                dims = ['YG','XG'],
+                coords = {
+                    'YG': self.YG,
+                    'XG': self.XG
+                }
+            )
 
-        self.xibar_0 = xibar_0
+    def init_xi(self,xi):
+        try:
+            np.shape(xi) == ((self.NyG,self.NxG))
+        except ValueError:
+            print('Initial xi must have shape (Ny+1,Nx+1) to be defined on the grid corners.')
+        else:
+            # set zero on boundaries
+            xi_remove = xi[1:-1,1:-1]
+            xi_pad = np.pad(xi_remove,((1,1)),constant_values=0)
+            self.xibar_0 = xr.DataArray(
+                xi_pad,
+                dims = ['YG','XG'],
+                coords = {
+                    'YG': self.YG,
+                    'XG': self.XG
+                }
+            )
 
-        ubar_0 = -self.psibar_0.differentiate(coord='YG')
+    def psi_from_xi(self):
+        try:
+            self.xibar_0
+        except NameError:
+            print('Specifiy initial xi to calculate xi from psi.')
+        else:
+            # get elliptic solver
+            self.elliptic()
 
-        self.ubar_0 = xr.DataArray(
-            ubar_0,
-            dims = ['YG','XG'],
-            coords = {
-                'YG': self.YG,
-                'XG': self.XG
-            }
-        )
+            psibar = self.LU.solve((-np.array(self.xibar_0)).flatten())
+            psibar = psibar.reshape((self.NyG,self.NxG))
 
-        vbar_0 = self.psibar_0.differentiate(coord='XG')
+            self.psibar_0 = xr.DataArray(
+                psibar,
+                dims = ['YG','XG'],
+                coords = {
+                    'YG': self.YG,
+                    'XG': self.XG
+                }
+            )
 
-        self.vbar_0 = xr.DataArray(
-            ubar_0,
-            dims = ['YG','XG'],
-            coords = {
-                'YG': self.YG,
-                'XG': self.XG
-            }
-        )
+            ubar_0 = -self.psibar_0.differentiate(coord='YG')
+
+            self.ubar_0 = xr.DataArray(
+                ubar_0,
+                dims = ['YG','XG'],
+                coords = {
+                    'YG': self.YG,
+                    'XG': self.XG
+                }
+            )
+
+            vbar_0 = self.psibar_0.differentiate(coord='XG')
+
+            self.vbar_0 = xr.DataArray(
+                ubar_0,
+                dims = ['YG','XG'],
+                coords = {
+                    'YG': self.YG,
+                    'XG': self.XG
+                }
+            )
 
 
-    def model(self,dt,Nt,gamma_q,r):
+    def xi_from_psi(self):
+        try:
+            self.psibar_0
+        except NameError:
+            print('Specify initial psi or run init_psi() to calculate inttial xi from initial psi.')
+        else:
+            #calculate initial xibar from initial psibar
+            xibar_0 = np.array((self.psibar_0.differentiate(coord='XG').differentiate(coord='XG') + \
+                self.psibar_0.differentiate(coord='YG').differentiate(coord='YG'))/self.bathy - \
+                    (self.bathy.differentiate(coord='XG')*self.psibar_0.differentiate(coord='XG') + 
+                    self.bathy.differentiate(coord='YG')*self.psibar_0.differentiate(coord='YG'))/(self.bathy**2))
+
+            xibar_0 = np.pad(xibar_0[1:-1,1:-1],((1,1)),constant_values=0)
+
+            self.xibar_0 = xr.DataArray(
+                xibar_0,
+                dims = ['YG','XG'],
+                coords = {
+                    'YG': self.YG,
+                    'XG': self.XG
+                }
+            )
+
+            ubar_0 = -self.psibar_0.differentiate(coord='YG')
+
+            self.ubar_0 = xr.DataArray(
+                ubar_0,
+                dims = ['YG','XG'],
+                coords = {
+                    'YG': self.YG,
+                    'XG': self.XG
+                }
+            )
+
+            vbar_0 = self.psibar_0.differentiate(coord='XG')
+
+            self.vbar_0 = xr.DataArray(
+                vbar_0,
+                dims = ['YG','XG'],
+                coords = {
+                    'YG': self.YG,
+                    'XG': self.XG
+                }
+            )
+
+
+    def model(self,dt,Nt,gamma_q,r_BD,r_diff,tau_0,rho_0):
 
         try:
-            print('try')
             self.psibar_0
 
         except AttributeError:
@@ -140,108 +240,158 @@ class Barotropic:
         else:
         
             # generate matrices to solve for psibar
-            self.elliptic()
+            try:
+                self.LU
+            except:
+                self.elliptic()
 
             # store model parameters in object
             self.dt = dt
             self.Nt = Nt
             self.gamma_q = gamma_q
-            self.r = r
+            self.r_BD = r_BD
+            self.r_diff = r_diff
+            self.tau_0 = tau_0 
+            self.rho_0 = rho_0
 
             # initialise parameters pisbar, zetabar, and grad xibar components
             psibar_n = self.psibar_0
             psibar_np1 = np.zeros_like(psibar_n)
             xibar_n = self.xibar_0
             xibar_np1 = np.zeros_like(xibar_n)
-            zetabar_n = self.xibar_0+self.f
-            xibar_dx_n = np.zeros_like(xibar_n)
-            xibar_dy_n = np.zeros_like(xibar_n)
+            # comment out ubar and vbar for solid body rotation
             ubar_n = self.ubar_0
             ubar_np1 = np.zeros_like(ubar_n)
             vbar_n = self.vbar_0
             vbar_np1 = np.zeros_like(vbar_n)
+
+            self.xibar = [self.xibar_0]
+            self.psibar = [self.psibar_0]
+            self.adv = [np.zeros((self.NyG,self.NxG))]
+            # comment out ubar and vbar for solid body rotation
+            self.ubar = [self.ubar_0]
+            self.vbar = [self.vbar_0]
 
             # initialise parameters to store F_n, F_nm1 and F_nm2 to calculate xibar_np1 with AB3
             F_n = np.zeros_like(xibar_n)
             F_nm1 = np.zeros_like(xibar_n)
             F_nm2 = np.zeros_like(xibar_n)
 
+            # calculate wind stress
+
+            tau = [(-tau_0*np.cos((2*np.pi*y)/(self.Ly)))*np.ones(self.NxG) for y in self.YG]
+            self.tau = xr.DataArray(
+                np.array(tau),
+                dims = ['YG','XG'],
+                coords = {
+                    'YG': self.YG,
+                    'XG': self.XG
+                }
+            )
+
+            self.calc_wind_stress()
+
+
             # time stepping function
 
             #def time_step(scheme,F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1):
             def time_step(scheme,**kw):
                 def wrapper(*args,**kwargs):
-                    # calculate values needed to step forward xibar
-                    # advection term
-                    print('adv')
-                    zetabar_n = kw.get('xibar_n') + self.f
-                    print(np.shape(zetabar_n))
-                    print(np.shape(kw.get('psibar_n')))
-                    adv_n = self.advection(zetabar_n,kw.get('ubar_n'),kw.get('vbar_n'))
 
-                    # flux term
+                    try:
+                        kw.get('ubar_n')
+                        kw.get('vbar_n')
+                        kw.get('xibar_n')
+                        kw.get('F_nm1')
+                        kw.get('F_nm2')
+                    except TypeError:
+                        print('None returned.')
 
-                    # dissipation 
-                    print('D')
-                    D_n = self.r*kw.get('xibar_n')
+                    else:
+                        # calculate advection term
+                        adv_n = self.advection_new(self.xibar[-1],self.psibar[-1])
 
-                    # F_n
-                    print('F')
-                    F_n = -adv_n - D_n # - div_flux_n
+                        # flux term
 
-                    print('xibar')
-                    xibar_np1 = scheme(kw.get('xibar_n'),self.dt,F_n,kw.get('F_nm1'),kw.get('F_nm2'))
+                        # dissiaption from bottom drag
+                        BD_n = self.r_BD*self.xibar[-1]
 
-                    # SOLVE FOR PSIBAR
-                    psibar_np1 = self.LU.solve(np.array(xibar_np1).flatten())
-                    #psibar_np1 = linalg.spsolve(self.matrix_elliptic,np.array(xibar_np1).flatten())
-                    psibar_np1 = xr.DataArray(
-                        psibar_np1.reshape((self.NyG,self.NxG)),
-                        dims = ['YG','XG'],
-                        coords = {
-                            'YG': self.YG,
-                            'XG': self.XG
-                        }
-                    )
-                    print(np.shape(psibar_np1))
+                        # diffusion of vorticity
+                        xibar_n = xr.DataArray(
+                            self.xibar[-1],
+                            dims = ['YG','XG'],
+                            coords = {
+                                'YG': self.YG,
+                                'XG': self.XG
+                            }
+                        )
 
-                    ubar_np1 = xr.DataArray(
-                        -psibar_np1.differentiate(coord='YG'),
-                        dims = ['YG','XG'],
-                        coords = {
-                            'YG': self.YG,
-                            'XG': self.XG
-                        }
-                    )
+                        diff_n = self.r_diff*(xibar_n.differentiate(coord='XG').differentiate(coord='XG') + \
+                            xibar_n.differentiate(coord='YG').differentiate(coord='YG'))
 
-                    vbar_np1 = xr.DataArray(
-                        psibar_np1.differentiate(coord='XG'),
-                        dims = ['YG','XG'],
-                        coords = {
-                            'YG': self.YG,
-                            'XG': self.XG
-                        }
-                    )
+                        # F_n
+                        F_n = -adv_n - BD_n - diff_n + self.wind_stress
 
-                    # DUMP XIBAR AND PSIBAR AT CERTAIN INTERVALS
+                        # calculate new value of xibar
+                        xibar_np1 = scheme(self.xibar[-1],self.dt,F_n,kw.get('F_nm1'),kw.get('F_nm2'))
 
-                    # reset values
-                    print('reset')
-                    F_nm2 = kw.get('F_nm1').copy()
-                    F_nm1 = F_n.copy()
-                    F_n = np.zeros_like(F_n)
-                    xibar_n = xibar_np1.copy()
-                    xibar_np1 = np.zeros_like(xibar_np1)
-                    psibar_n = psibar_np1.copy()
-                    psibar_np1 = np.zeros_like(psibar_np1)
-                    ubar_n = ubar_np1.copy()
-                    ubar_np1 = np.zeros_like(ubar_n)
-                    vbar_n = vbar_np1.copy()
-                    vbar_np1 = np.zeros_like(vbar_n)
+                        # uncomment for solid body rotation
+                        # psibar_np1 = self.psibar[-1]
 
-                    print('return')
+                        # SOLVE FOR PSIBAR
+                        # comment out psibar_np1, ubar_np1 and vbar_np1 for solid body rotation
+                        psibar_np1 = self.LU.solve((-np.array(xibar_np1)).flatten())
+                        psibar_np1 = xr.DataArray(
+                            psibar_np1.reshape((self.NyG,self.NxG)),
+                            dims = ['YG','XG'],
+                            coords = {
+                                'YG': self.YG,
+                                'XG': self.XG
+                            }
+                        )
 
-                    return F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1, ubar_n, ubar_np1, vbar_n, vbar_np1
+                        ubar_np1 = xr.DataArray(
+                            -psibar_np1.differentiate(coord='YG'),
+                            dims = ['YG','XG'],
+                            coords = {
+                                'YG': self.YG,
+                                'XG': self.XG
+                            }
+                        )
+
+                        vbar_np1 = xr.DataArray(
+                            psibar_np1.differentiate(coord='XG'),
+                            dims = ['YG','XG'],
+                            coords = {
+                                'YG': self.YG,
+                                'XG': self.XG
+                            }
+                        )
+
+                        # DUMP XIBAR AND PSIBAR AT CERTAIN INTERVALS
+
+                        self.xibar = np.append(self.xibar,[xibar_np1],axis=0)
+                        self.psibar = np.append(self.psibar,[psibar_np1],axis=0)
+                        # comment out ubar and vbar for solid body rotation
+                        self.ubar = np.append(self.ubar,[ubar_np1],axis=0)
+                        self.vbar = np.append(self.vbar,[vbar_np1],axis=0)
+
+                        # reset values
+                        F_nm2 = kw.get('F_nm1').copy()
+                        F_nm1 = F_n.copy()
+                        F_n = np.zeros_like(F_n)
+                        xibar_n = xibar_np1.copy()
+                        xibar_np1 = np.zeros_like(xibar_np1)
+                        psibar_n = psibar_np1.copy()
+                        psibar_np1 = np.zeros_like(psibar_np1)
+                        # comment out ubar and vbar for solid body rotation
+                        ubar_n = ubar_np1.copy()
+                        ubar_np1 = np.zeros_like(ubar_n)
+                        vbar_n = vbar_np1.copy()
+                        vbar_np1 = np.zeros_like(vbar_n)
+
+                        # comment out ubar and vbar for solid body rotation
+                        return F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1, ubar_n, ubar_np1, vbar_n, vbar_np1
                 return wrapper
 
             def forward_Euler(xibar_n,dt,F_n,F_nm1,F_nm2):
@@ -254,122 +404,146 @@ class Barotropic:
 
             # first two time steps with forward Euler
             print('ts=1')
+            # comment out ubar and vbar for solid body rotation
             func_to_run = time_step(scheme=forward_Euler,\
                 F_nm2=F_nm2, F_nm1=F_nm1, F_n=F_n, xibar_n=xibar_n, xibar_np1=xibar_np1, \
                     psibar_n=psibar_n, psibar_np1=psibar_np1,ubar_n=ubar_n,ubar_np1=ubar_np1,\
                         vbar_n=vbar_n,vbar_np1=vbar_np1)
+            # comment out for solid body rotation
             F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1, ubar_n, ubar_np1, vbar_n, vbar_np1 = func_to_run()
+            # un comment for solid body rotation
+            #F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1 = func_to_run()
+
             print('ts=2')
+            # comment out ubar and vbar for solid body rotation
             func_to_run = time_step(scheme=forward_Euler,\
                 F_nm2=F_nm2, F_nm1=F_nm1, F_n=F_n, xibar_n=xibar_n, xibar_np1=xibar_np1, \
                     psibar_n=psibar_n, psibar_np1=psibar_np1,ubar_n=ubar_n,ubar_np1=ubar_np1,\
                         vbar_n=vbar_n,vbar_np1=vbar_np1)
+            # comment out for solid body rotation
             F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1, ubar_n, ubar_np1, vbar_n, vbar_np1 = func_to_run()
+            # un comment for solid body rotation
+            #F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1 = func_to_run()
 
             # all other time steps with AB3:
             for t in range(3,Nt):
                 print('ts='+str(t))
+                # comment out ubar and vbar for solid body rotation
                 func_to_run = time_step(scheme=AB3,\
                 F_nm2=F_nm2, F_nm1=F_nm1, F_n=F_n, xibar_n=xibar_n, xibar_np1=xibar_np1, \
                     psibar_n=psibar_n, psibar_np1=psibar_np1,ubar_n=ubar_n,ubar_np1=ubar_np1,\
                         vbar_n=vbar_n,vbar_np1=vbar_np1)
+                # comment out for solid body rotation
                 F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1, ubar_n, ubar_np1, vbar_n, vbar_np1 = func_to_run()
+                # un comment for solid body rotation
+                #F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1 = func_to_run()
 
             return psibar_n, xibar_n
 
+    def advection_new(self,xi,psi):
 
+        # interpolate psi onto YCXC points
 
-    def advection_AJ(self,zetabar,psibar):
+        zeta = xi + self.f
 
-        print('J start')
+        zeta = np.array(zeta)
 
-        J = psibar[2:,1:-1]*(3*zetabar[1:-1,2:] - 3*zetabar[1:-1,:-2] + zetabar[2:,2:] - zetabar[:-2,:-2]) + \
-            psibar[:-2,1:-1]*(-3*zetabar[1:-1,2:] + 3*zetabar[1:-1,:-2]) + \
-                psibar[1:-1,2:]*(-3*zetabar[2:,1:-1] + 3*zetabar[:-2,1:-1] - zetabar[2:,2:] + zetabar[:-2,:-2]) + \
-                    psibar[1:-1,:-2]*(3*zetabar[2:,1:-1] - 3*zetabar[:-2,1:-1]) + \
-                        psibar[2:,2:]*(zetabar[1:-1,2:] - zetabar[2:,1:-1]) + \
-                            psibar[:-2,:-2]*(zetabar[1:-1,2:] + zetabar[2:,1:-1])
+        f_psi = interp.interp2d(self.XG,self.YG,psi)
+        psi_YCXC = np.array(f_psi(self.XC,self.YC))
 
-        J = np.pad(J,((2,2),(2,2)),constant_values=0)
+        v_YGXC = np.array((psi_YCXC[:,1:] - psi_YCXC[:,:-1])/self.d) 
+        u_YCXG = np.array((psi_YCXC[:-1,:] - psi_YCXC[1:,:])/self.d) 
 
-        print(J)
+        adv = (1/(2*self.d))*((zeta[1:-1,1:-1] + zeta[2:,1:-1])*v_YGXC[1:,:] + \
+            (zeta[1:-1,1:-1] + zeta[1:-1,2:])*u_YCXG[:,1:] - \
+                (zeta[1:-1,1:-1] + zeta[:-2,1:-1])*v_YGXC[:-1,:] - \
+                    (zeta[1:-1,1:-1] + zeta[1:-1,:-2])*u_YCXG[:,:-1]) 
 
-        return J
-
-    def advection(self,zeta,u,v):
-        print('adv start')
-
-        adv = (self.d/8)*(zeta[1:-1,1:-1]*(v[2:,1:-1] + v[2:,2:] - v[:-2,1:-1] - v[:-2,2:] + u[1:-1,2:] + \
-            u[2:,2:] - u[1:-1,:-2] - u[2:,:-2]) + \
-                zeta[2:,1:-1]*(v[1:-1,1:-1] + v[1:-1,2:] + v[2:,1:-1] + v[2:,2:]) + \
-                    zeta[1:-1,2:]*(u[1:-1,1:-1] + u[2:,1:-1] + u[1:-1,2:] + u[2:,2:]) - \
-                        zeta[:-2,1:-1]*(v[1:-1,1:-1] + v[1:-1,2:] + v[:-2,1:-1] + v[:-2,2:]) - \
-                            zeta[1:-1,:-2]*(u[1:-1,1:-1] + u[2:,1:-1] + u[1:-1,:-2] + u[2:,:-2]))
-
-        print('pad')
-
-        adv = np.pad(adv,((2,2),(2,2)),constant_values=0)
+        adv = np.pad(adv,((1,1)),constant_values=0)
+        
+        self.adv = np.append(self.adv,[adv],axis=0)
 
         return adv
-
-
 
     def elliptic(self):
 
         # create coefficient matrices
 
-        H_2 = np.array([np.concatenate(([(1/(self.bathy[j,0]*self.d**2) + (self.bathy[j,1] - self.bathy[j,0])/(self.d*self.bathy[j,0]**2))],\
-                        [(1/(self.bathy[j,i]*self.d**2) + (self.bathy[j,i+1] - self.bathy[j,i-1])/(2*self.d*self.bathy[j,i]**2)) for i in range(1,self.NxG-1)],\
-                            [(1/(self.bathy[j,self.NxG-1]*self.d**2) + (self.bathy[j,self.NxG-1] - self.bathy[j,self.NxG-2])/(self.d*self.bathy[j,self.NxG-1]**2))])) for j in range(self.NyG)])
+        C2 = np.array([np.concatenate(([1],\
+            [(-1/((self.d**2)*self.bathy[j,i]) + (self.bathy[j,i+1] - self.bathy[j,i-1])/(1*(self.d**2)*(self.bathy[j,i]**2))) \
+                for i in range(1,self.NxG-1)],\
+                [1])) for j in range(self.NyG)])
 
-        H_3 = np.array([np.concatenate(([(1/(self.bathy[j,0]*self.d**2) - (self.bathy[j,1] - self.bathy[j,0])/(self.d*self.bathy[j,0]**2))],\
-                        [(1/(self.bathy[j,i]*self.d**2) - (self.bathy[j,i+1] - self.bathy[j,i-1])/(2*self.d*self.bathy[j,i]**2)) for i in range(1,self.NxG-1)],\
-                            [(1/(self.bathy[j,self.NxG-1]*self.d**2) - (self.bathy[j,self.NxG-1] - self.bathy[j,self.NxG-2])/(self.d*self.bathy[j,self.NxG-1]**2))])) for j in range(self.NyG)])
+        C3 = np.array([np.concatenate(([1],\
+            [(-1/((self.d**2)*self.bathy[j,i]) - (self.bathy[j,i+1] - self.bathy[j,i-1])/(1*(self.d**2)*(self.bathy[j,i]**2))) \
+                for i in range(1,self.NxG-1)],\
+                [1])) for j in range(self.NyG)])
+        
+        C4 = np.concatenate(([np.ones(self.NxG)],\
+            [[(-1/((self.d**2)*self.bathy[j,i]) + (self.bathy[j+1,i] - self.bathy[j-1,i])/(1*(self.d**2)*(self.bathy[j,i]**2))) \
+                for i in range(self.NxG)] for j in range(1,self.NyG-1)],\
+                [np.ones(self.NxG)]))
 
-        H_4 = np.array([np.concatenate(([(1/(self.bathy[0,i]*self.d**2) + (self.bathy[1,i] - self.bathy[0,i])/(self.d*self.bathy[0,i]**2))],\
-                        [(1/(self.bathy[j,i]*self.d**2) + (self.bathy[j+1,i] - self.bathy[j-1,i])/(2*self.d*self.bathy[j,i]**2)) for j in range(1,self.NyG-1)],\
-                            [(1/(self.bathy[self.NyG-1,i]*self.d**2) + (self.bathy[self.NyG-1,i] - self.bathy[self.NyG-2,i])/(self.d*self.bathy[self.NyG-1,i]**2))])) for i in range(self.NxG)])
+        C5 = np.concatenate(([np.ones(self.NxG)],\
+            [[(-1/((self.d**2)*self.bathy[j,i]) - (self.bathy[j+1,i] - self.bathy[j-1,i])/(1*(self.d**2)*(self.bathy[j,i]**2))) \
+                for i in range(self.NxG)] for j in range(1,self.NyG-1)],\
+                [np.ones(self.NxG)]))
 
-        H_5 = np.array([np.concatenate(([(1/(self.bathy[0,i]*self.d**2) - (self.bathy[1,i] - self.bathy[0,i])/(self.d*self.bathy[0,i]**2))],\
-                        [(1/(self.bathy[j,i]*self.d**2) - (self.bathy[j+1,i] - self.bathy[j-1,i])/(2*self.d*self.bathy[j,i]**2)) for j in range(1,self.NyG-1)],\
-                            [(1/(self.bathy[self.NyG-1,i]*self.d**2) - (self.bathy[self.NyG-1,i] - self.bathy[self.NyG-2,i])/(self.d*self.bathy[self.NyG-1,i]**2))])) for i in range(self.NxG)])
-
-        H_6 = np.array([[-4/(self.bathy[j,i]*self.d**2) for i in range(self.NxG)]for j in range(self.NyG)])
-
+        C6 = np.array([np.concatenate(([1],\
+            [4/(self.bathy[j,i]*(self.d**2)) for i in range(1,self.NxG-1)],\
+                [1])) for j in range(self.NyG)])
+    
         # create matrix to solve for psibar
 
-        centre_ones = np.concatenate(([1],[0 for i in range(1,self.NxG-1)],[1]))
-        diags_ones = np.concatenate((np.ones(self.NxG),np.tile(centre_ones,self.NyG-2),np.ones(self.NxG)))
+        centre_ones = np.concatenate(([-1],[0 for i in range(1,self.NxG-1)],[-1]))
+        diags_ones = np.concatenate((-1*np.ones(self.NxG),np.tile(centre_ones,self.NyG-2),-1*np.ones(self.NxG)))
         diagonal_ones = np.diagflat(diags_ones)
 
         centre = np.concatenate(([0],[1 for i in range(1,self.NxG-1)],[0]))
-        diags = np.concatenate((np.zeros(self.NxG),np.tile(centre,self.NyG-2),np.zeros(self.NxG)))
-        diagonal = np.diagflat(diags)*H_6.flatten()
+        diags = np.concatenate((np.zeros(self.NxG),np.tile(centre,self.NyG-2),np.zeros(self.NxG)))*C6.flatten()
+        diagonal = np.diagflat(diags)
 
         centre_pi = np.concatenate(([0],[1 for i in range(1,self.NxG-1)],[0]))
-        diags_pi = np.concatenate((np.zeros(self.NxG),np.tile(centre_pi,self.NyG-2),np.zeros(self.NxG)))
-        diag_pi = np.diagflat(diags_pi[:len(diags_pi)-1],k=1)*H_2.flatten()
+        diags_pi = np.concatenate((np.zeros(self.NxG),np.tile(centre_pi,self.NyG-2),np.zeros(self.NxG)))*C2.flatten()
+        diag_pi = np.diagflat(diags_pi[:len(diags_pi)-1],k=1)
 
         centre_mi = np.concatenate(([0],[1 for i in range(1,self.NxG-1)],[0]))
-        diags_mi = np.concatenate((np.zeros(self.NxG),np.tile(centre_mi,self.NyG-2),np.zeros(self.NxG)))
-        diag_mi = np.diagflat(diags_mi[1:],k=-1)*H_3.flatten()
+        diags_mi = np.concatenate((np.zeros(self.NxG),np.tile(centre_mi,self.NyG-2),np.zeros(self.NxG)))*C3.flatten()
+        diag_mi = np.diagflat(diags_mi[1:],k=-1)
 
         centre_pj = np.concatenate(([0],[1 for i in range(1,self.NxG-1)],[0]))
-        diags_pj = np.concatenate((np.zeros(self.NxG),np.tile(centre_pj,self.NyG-2),np.zeros(self.NxG)))
-        diag_pj = np.diagflat(diags_pj[:len(diags_pi)-self.NxG],k=self.NxG)*H_4.flatten()
+        diags_pj = np.concatenate((np.zeros(self.NxG),np.tile(centre_pj,self.NyG-2),np.zeros(self.NxG)))*C4.flatten()
+        diag_pj = np.diagflat(diags_pj[:len(diags_pi)-self.NxG],k=self.NxG)
 
         centre_mj = np.concatenate(([0],[1 for i in range(1,self.NxG-1)],[0]))
-        diags_mj = np.concatenate((np.zeros(self.NxG),np.tile(centre_mj,self.NyG-2),np.zeros(self.NxG)))
-        diag_mj = np.diagflat(diags_mj[self.NxG:],k=-self.NxG)*H_5.flatten()
+        diags_mj = np.concatenate((np.zeros(self.NxG),np.tile(centre_mj,self.NyG-2),np.zeros(self.NxG)))*C5.flatten()
+        diag_mj = np.diagflat(diags_mj[self.NxG:],k=-self.NxG)
 
         diagonal_total = diagonal + diag_pi + diag_mi + diag_pj + diag_mj + diagonal_ones
         self.diagonal = diagonal_total
         LU = linalg.splu(sp.sparse.csc_matrix(diagonal_total))
 
         self.LU = LU
-        
 
+    def calc_wind_stress(self):
+        # calculate the wind stress to be added to F_n
+
+        tau = np.array(self.tau)
+        bathy = self.bathy
+
+        tau_xi = (-tau[2:,1:-1] + tau[:-2,1:-1])/(2*self.d*self.rho_0*bathy[1:-1,1:-1])
+        tau_xi = np.pad(tau_xi,((1,1)),constant_values=0)
+
+        self.wind_stress = xr.DataArray(
+            tau_xi,
+            dims = ['YG','XG'],
+            coords = {
+                'YG': self.YG,
+                'XG': self.XG
+            }
+        )
     
+
 
 
 
@@ -379,46 +553,376 @@ Ny = 50
 test = Barotropic(d=5000,Nx=Nx,Ny=Ny,bathy=100*np.ones((Ny+1,Nx+1)),f0=0.7E-4,beta=2E-11)
 
 #%%
-test.init_psi(k_peak=5,const=1)
 
-X,Y = np.meshgrid(test.XG,test.YG)
+########################################################################
+# TEST 1
+########################################################################
+
+# CREATE INIT XI
+
+dx = 5000
+dy = 5000
+Lx = dx*Nx
+Ly = dy*Ny 
+k = 3
+l = 4
+xibar_0 = np.array([[np.sin((k*np.pi*i*dx)/Lx)*np.sin((l*np.pi*j*dy)/Ly) for i in range(Nx+1)]for j in range(Ny+1)])/(1E10)
+
+test.init_xi(xibar_0)
+
+X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
 fig,axs = plt.subplots(1,1)
-axs.contour(X,Y,test.psibar_0)
+im = axs.contourf(X,Y,test.xibar_0,levels=50,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
 axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('$\overline{\\xi}$')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title('Initial $\overline{\\xi}$')
 plt.show()
 
-X,Y = np.meshgrid(test.XG,test.YG)
+#%%
+
+# GENERATE INIT PSI FROM INIT XI
+
+test.psi_from_xi()
+
+X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
 fig,axs = plt.subplots(1,1)
-axs.contour(X,Y,test.xibar_0)
+im = axs.contour(X,Y,test.psibar_0,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
 axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('$\overline{\psi}$')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title('Initial $\overline{\psi}$')
+#plt.savefig('testing_figs/sines/initial_psi')
+plt.show()
+
+X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
+fig,axs = plt.subplots(1,1)
+im = axs.contourf(X,Y,test.xibar_0,levels=50,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('$\overline{\\xi}$')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title('Initial $\overline{\\xi}$')
+#plt.savefig('testing_figs/sines/initial_xi')
+plt.show()
+
+#%%
+
+# RUN MODEL
+
+out_psi,out_xi = test.model(dt=1000,Nt=1000,gamma_q=0.1,r_BD=0,r_diff=0.01,tau_0=0,rho_0=1000)
+
+
+# %%
+
+# PLOT MODEL OUTPUT
+
+fig,axs = plt.subplots(1,1)
+im = axs.contour(test.XG/1000,test.YG/1000,out_psi,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('$\overline{\psi}$')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title('Final $\overline{\psi}$')
+#plt.savefig('testing_figs/sines/final_psi_beta')
+plt.show()
+
+fig,axs = plt.subplots(1,1)
+im = axs.contourf(test.XG/1000,test.YG/1000,out_xi,levels=50,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('$\overline{\\xi}$')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title('Final $\overline{\\xi}$')
+#plt.savefig('testing_figs/sines/final_xi_beta')
+plt.show()
+
+#%% 
+
+########################################################################
+# TEST 2 - SOLID BODY ROTATION
+########################################################################
+
+dx = 5000
+dy = 5000
+Nx_psi = 20
+Ny_psi = 20
+Lx = dx*Nx_psi
+Ly = dy*Ny_psi
+k = 1
+l = 1
+xibar_0 = np.array([[np.sin((k*np.pi*i*dx)/Lx)*np.sin((l*np.pi*j*dy)/Ly) for i in range(Nx_psi+1)]for j in range(Ny_psi+1)])
+xibar_0 = np.pad(xibar_0,((5,25)),constant_values=0)
+
+test.init_xi(xibar_0)
+
+X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
+fig,axs = plt.subplots(1,1)
+im = axs.contour(X,Y,test.xibar_0,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('$\\xi$')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title('Initial $\\xi$')
+#plt.savefig('testing_figs/solid_body_rotation/initial_xi')
+plt.show()
+
+#%%
+
+'''psibar_0 = np.array([[np.sin((np.pi*i*test.dx)/test.Lx)*np.sin((np.pi*j*test.dy)/test.Ly) \
+    for i in range(test.NxG)]\
+        for j in range(test.NyG)])*1000'''
+
+Lx = dx*Nx
+Ly = dy*Ny
+
+psibar_0 = 1E4*np.array([[((i*dx)/Lx-0.5)**2 + ((j*dy)/Ly-0.5)**2 for i in range(Nx+1)] for j in range(Ny+1)])
+
+test.init_psi(psibar_0)
+
+X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
+fig,axs = plt.subplots(1,1)
+im = axs.contour(X,Y,test.psibar_0,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('$\psi$')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title('$\psi_{Advect}$')
+#plt.savefig('testing_figs/solid_body_rotation/psi_advect')
+plt.show()
+
+#%%
+print(test.psibar_0)
+
+#%%
+
+# RUN MODEL
+
+out_xi = test.model(dt=1000,Nt=1000,gamma_q=0.1,r=0,tau_0=0,rho_0=1000)
+
+#%%
+
+t = 999
+
+X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
+fig,axs = plt.subplots(1,1)
+im = axs.contour(X,Y,test.xibar[t],cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('$\overline{\\xi}$')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title('t = ' + str(t) + ', $\Delta t = 1000s$')
+plt.show()
+
+#%%
+
+########################################################################
+# TEST 3 - WIND STRESS
+########################################################################
+
+test.gen_init_psi(k_peak=2,const=10)
+test.xi_from_psi()
+
+#%%
+
+X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
+fig,axs = plt.subplots(1,1)
+im = axs.contour(X,Y,test.psibar_0,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('$\overline{\psi}$')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title('Initial $\overline{\psi}$')
+plt.show()
+
+X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
+fig,axs = plt.subplots(1,1)
+im = axs.contourf(X,Y,test.xibar_0,levels=50,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('$\overline{\\xi}$')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title('Initial $\overline{\\xi}$')
+plt.show()
+
+#%%
+
+out_psi,out_xi = test.model(dt=1000,Nt=1000,gamma_q=0.1,r_BD=10E-5,r_diff=10E-8,tau_0=0.1,rho_0=1000)
+
+#%%
+
+t = 999
+
+X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
+fig,axs = plt.subplots(1,1)
+im = axs.contour(X,Y,test.xibar[t],cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('$\overline{\\xi}$')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title('t = ' + str(t) + ' $\\xi$')
+plt.show()
+
+X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
+fig,axs = plt.subplots(1,1)
+im = axs.contour(X,Y,test.psibar[t],cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('$\overline{\psi}$')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title('t = ' + str(t) + ' $\psi$')
+plt.show()
+
+
+
+# %%
+for t in range(90,99):
+    X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
+    fig,axs = plt.subplots(1,1)
+    im = axs.contour(X,Y,test.xibar[t],cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+    axs.set_aspect(1)
+    cbar = plt.colorbar(im)
+    cbar.set_label('$\overline{\\xi}$')
+    plt.xlabel('x (km)')
+    plt.ylabel('y (km)')
+    plt.title(str(t) + '$\overline{\\xi}$')
+    plt.show()
+
+    '''X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
+    fig,axs = plt.subplots(1,1)
+    im = axs.contour(X,Y,test.xibar[t],cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+    axs.set_aspect(1)
+    cbar = plt.colorbar(im)
+    cbar.set_label('$\overline{\psi}$')
+    plt.xlabel('x (km)')
+    plt.ylabel('y (km)')
+    plt.title(str(t) + '$\overline{\\xi}$')
+    plt.show()'''
+
+
+#%%
+for t in range(10):
+    print(np.array_equal(test.adv[t],np.zeros_like(test.adv[t])))
+#%%
+
+t = 999
+
+X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
+fig,axs = plt.subplots(1,1)
+im = axs.contour(X,Y,test.adv[t],cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('Advection')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title(str(t) + ' Advection')
+plt.show()
+
+
+
+# %%
+t = 0
+zeta = test.xibar[t] + test.f 
+
+f_psi = interp.interp2d(test.XG,test.YG,test.psibar[t])
+psi_YCXC = np.array(f_psi(test.XC,test.YC))
+
+v = np.array((psi_YCXC[:,1:] - psi_YCXC[:,:-1])/test.d) 
+u = np.array((psi_YCXC[:-1,:] - psi_YCXC[1:,:])/test.d)
+
+print(np.shape(v))
+print(np.shape(u))
+
+advection = np.zeros((Ny+1,Nx+1))
+
+for i in range(1,Nx):
+    for j in range(1,Ny):
+        advection[j,i] = (1/(2*test.d))*((zeta[j,i] + zeta[j+1,i])*v[j,i-1] + (zeta[j,i] + zeta[j,i+1])*u[j-1,i] - \
+            (zeta[j,i] + zeta[j-1,i])*v[j-1,i-1] - (zeta[j,i] + zeta[j,i-1])*u[j-1,i-1])
+
+
+X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
+fig,axs = plt.subplots(1,1)
+im = axs.contour(X,Y,advection,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('Advection')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title('Advection at time step 0')
+plt.show()
+
+
+
+# %%
+
+u = -test.psibar_0.differentiate(coord='YG')
+v = test.psibar_0.differentiate(coord='XG')
+
+fig,axs = plt.subplots(1,1)
+axs.quiver(test.XG[2:-2:5]/1000,test.YG[2:-2:5]/1000,u[2:-2:5,2:-2:5],v[2:-2:5,2:-2:5])
+axs.set_aspect(1)
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+#plt.savefig('testing_figs/solid_body_rotation/u_advect')
+plt.show()
+
+
+# %%
+X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
+fig,axs = plt.subplots(1,1)
+im = axs.contour(X,Y,u,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('$\psi$')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title('$\psi_{Advect}$')
 plt.show()
 
 # %%
-out_psi,out_xi = test.model(dt=10,Nt=20,gamma_q=0.1,r=0.01)
 
-# %%
-X,Y = np.meshgrid(test.XG,test.YG)
+t = 4000
+
+X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
 fig,axs = plt.subplots(1,1)
-axs.contour(X,Y,out_psi)
+im = axs.contour(X,Y,test.psibar[t],cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
 axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('$\overline{\\xi}$')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title(str(t) + '$\overline{\\xi}$')
 plt.show()
 
-X,Y = np.meshgrid(test.XG,test.YG)
+# %%
+
+t = 1
+
+X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
 fig,axs = plt.subplots(1,1)
-axs.contour(X,Y,out_xi)
+im = axs.contour(X,Y,test.adv[t],cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
 axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('$\overline{\\xi}$')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title('u')
 plt.show()
-
-
 # %%
-test.advection(zetabar=out_xi,psibar=out_psi)
-
-# %%
-print(out_xi)
-print(out_psi)
-
-# %%
-
-test.advection(zeta=test.xibar_0,u=test.ubar_0,v=test.vbar_0)
 
 # %%
