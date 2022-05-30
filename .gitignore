@@ -2,4 +2,4 @@
 baro_env/
 testing_figs/
 *.ipynb
-__pycache__
+__pycache__*
