@@ -2,5 +2,4 @@
 baro_env/
 testing_figs/
 *.ipynb
-__pycache__*
 .ipynb_checkpoints
