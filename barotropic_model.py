@@ -160,27 +160,9 @@ class Barotropic:
                 }
             )
 
-            ubar_0 = -self.psibar_0.differentiate(coord='YG')
-
-            self.ubar_0 = xr.DataArray(
-                ubar_0,
-                dims = ['YG','XG'],
-                coords = {
-                    'YG': self.YG,
-                    'XG': self.XG
-                }
-            )
-
-            vbar_0 = self.psibar_0.differentiate(coord='XG')
-
-            self.vbar_0 = xr.DataArray(
-                ubar_0,
-                dims = ['YG','XG'],
-                coords = {
-                    'YG': self.YG,
-                    'XG': self.XG
-                }
-            )
+            ubar_0,vbar_0 = self.calc_UV(self.psibar_0)
+            self.ubar_0 = ubar_0
+            self.vbar_0 = vbar_0
 
 
     def xi_from_psi(self):
@@ -206,30 +188,12 @@ class Barotropic:
                 }
             )
 
-            ubar_0 = -self.psibar_0.differentiate(coord='YG')
-
-            self.ubar_0 = xr.DataArray(
-                ubar_0,
-                dims = ['YG','XG'],
-                coords = {
-                    'YG': self.YG,
-                    'XG': self.XG
-                }
-            )
-
-            vbar_0 = self.psibar_0.differentiate(coord='XG')
-
-            self.vbar_0 = xr.DataArray(
-                vbar_0,
-                dims = ['YG','XG'],
-                coords = {
-                    'YG': self.YG,
-                    'XG': self.XG
-                }
-            )
+            ubar_0,vbar_0 = self.calc_UV(self.psibar_0)
+            self.ubar_0 = ubar_0
+            self.vbar_0 = vbar_0
 
 
-    def model(self,dt,Nt,gamma_q,r_BD,r_diff,tau_0,rho_0):
+    def model(self,dt,Nt,gamma_q,r_BD,r_diff,tau_0,rho_0,dumpFreq):
 
         try:
             self.psibar_0
@@ -253,29 +217,24 @@ class Barotropic:
             self.r_diff = r_diff
             self.tau_0 = tau_0 
             self.rho_0 = rho_0
+            self.dumpFreq = dumpFreq
 
             # initialise parameters pisbar, zetabar, and grad xibar components
-            psibar_n = self.psibar_0
-            psibar_np1 = np.zeros_like(psibar_n)
-            xibar_n = self.xibar_0
-            xibar_np1 = np.zeros_like(xibar_n)
-            # comment out ubar and vbar for solid body rotation
-            ubar_n = self.ubar_0
-            ubar_np1 = np.zeros_like(ubar_n)
-            vbar_n = self.vbar_0
-            vbar_np1 = np.zeros_like(vbar_n)
+            self.psibar_n = self.psibar_0
+            self.psibar_np1 = np.zeros_like(self.psibar_n)
+            self.xibar_n = self.xibar_0
+            self.xibar_np1 = np.zeros_like(self.xibar_n)
 
+            # create arrays to save the data
             self.xibar = [self.xibar_0]
             self.psibar = [self.psibar_0]
-            self.adv = [np.zeros((self.NyG,self.NxG))]
-            # comment out ubar and vbar for solid body rotation
             self.ubar = [self.ubar_0]
             self.vbar = [self.vbar_0]
 
             # initialise parameters to store F_n, F_nm1 and F_nm2 to calculate xibar_np1 with AB3
-            F_n = np.zeros_like(xibar_n)
-            F_nm1 = np.zeros_like(xibar_n)
-            F_nm2 = np.zeros_like(xibar_n)
+            self.F_n = np.zeros_like(self.xibar_n)
+            self.F_nm1 = np.zeros_like(self.xibar_n)
+            self.F_nm2 = np.zeros_like(self.xibar_n)
 
             # calculate wind stress
 
@@ -291,6 +250,8 @@ class Barotropic:
 
             self.calc_wind_stress()
 
+            # calculate dump frequency in number of timesteps
+            dumpFreqTS = int(self.dumpFreq/self.dt)
 
             # time stepping function
 
@@ -298,100 +259,62 @@ class Barotropic:
             def time_step(scheme,**kw):
                 def wrapper(*args,**kwargs):
 
-                    try:
-                        kw.get('ubar_n')
-                        kw.get('vbar_n')
-                        kw.get('xibar_n')
-                        kw.get('F_nm1')
-                        kw.get('F_nm2')
-                    except TypeError:
-                        print('None returned.')
 
-                    else:
-                        # calculate advection term
-                        adv_n = self.advection_new(self.xibar[-1],self.psibar[-1])
+                    # calculate advection term
+                    adv_n = self.advection(self.xibar_n,self.psibar_n)
 
-                        # flux term
+                    # flux term
 
-                        # dissiaption from bottom drag
-                        BD_n = self.r_BD*self.xibar[-1]
+                    # dissiaption from bottom drag
+                    BD_n = self.r_BD*self.xibar_n
 
-                        # diffusion of vorticity
-                        xibar_n = xr.DataArray(
-                            self.xibar[-1],
-                            dims = ['YG','XG'],
-                            coords = {
-                                'YG': self.YG,
-                                'XG': self.XG
-                            }
-                        )
+                    # diffusion of vorticity
+                    xibar_n = xr.DataArray(
+                        self.xibar_n,
+                        dims = ['YG','XG'],
+                        coords = {
+                            'YG': self.YG,
+                            'XG': self.XG
+                        }
+                    )
 
-                        diff_n = self.r_diff*(xibar_n.differentiate(coord='XG').differentiate(coord='XG') + \
-                            xibar_n.differentiate(coord='YG').differentiate(coord='YG'))
+                    diff_n = self.r_diff*(xibar_n.differentiate(coord='XG').differentiate(coord='XG') + \
+                        xibar_n.differentiate(coord='YG').differentiate(coord='YG'))
 
-                        # F_n
-                        F_n = -adv_n - BD_n - diff_n + self.wind_stress
+                    # F_n
+                    F_n = -adv_n - BD_n - diff_n + self.wind_stress
 
-                        # calculate new value of xibar
-                        xibar_np1 = scheme(self.xibar[-1],self.dt,F_n,kw.get('F_nm1'),kw.get('F_nm2'))
+                    # calculate new value of xibar
+                    xibar_np1 = scheme(xibar_n=self.xibar_n,dt=self.dt,F_n=F_n,F_nm1=self.F_nm1,F_nm2=self.F_nm2)
 
-                        # uncomment for solid body rotation
-                        # psibar_np1 = self.psibar[-1]
+                    # uncomment for solid body rotation
+                    # psibar_np1 = self.psibar[-1]
 
-                        # SOLVE FOR PSIBAR
-                        # comment out psibar_np1, ubar_np1 and vbar_np1 for solid body rotation
-                        psibar_np1 = self.LU.solve((-np.array(xibar_np1)).flatten())
-                        psibar_np1 = xr.DataArray(
-                            psibar_np1.reshape((self.NyG,self.NxG)),
-                            dims = ['YG','XG'],
-                            coords = {
-                                'YG': self.YG,
-                                'XG': self.XG
-                            }
-                        )
+                    # SOLVE FOR PSIBAR
+                    # comment out psibar_np1, ubar_np1 and vbar_np1 for solid body rotation
+                    psibar_np1 = self.LU.solve((-np.array(xibar_np1)).flatten())
+                    psibar_np1 = psibar_np1.reshape((self.NyG,self.NxG))
 
-                        ubar_np1 = xr.DataArray(
-                            -psibar_np1.differentiate(coord='YG'),
-                            dims = ['YG','XG'],
-                            coords = {
-                                'YG': self.YG,
-                                'XG': self.XG
-                            }
-                        )
+                    # DUMP XIBAR AND PSIBAR AT CERTAIN INTERVALS
 
-                        vbar_np1 = xr.DataArray(
-                            psibar_np1.differentiate(coord='XG'),
-                            dims = ['YG','XG'],
-                            coords = {
-                                'YG': self.YG,
-                                'XG': self.XG
-                            }
-                        )
-
-                        # DUMP XIBAR AND PSIBAR AT CERTAIN INTERVALS
-
+                    if kw.get('t')%kw.get('dumpFreq') == 0:
                         self.xibar = np.append(self.xibar,[xibar_np1],axis=0)
                         self.psibar = np.append(self.psibar,[psibar_np1],axis=0)
-                        # comment out ubar and vbar for solid body rotation
-                        self.ubar = np.append(self.ubar,[ubar_np1],axis=0)
-                        self.vbar = np.append(self.vbar,[vbar_np1],axis=0)
 
-                        # reset values
-                        F_nm2 = kw.get('F_nm1').copy()
-                        F_nm1 = F_n.copy()
-                        F_n = np.zeros_like(F_n)
-                        xibar_n = xibar_np1.copy()
-                        xibar_np1 = np.zeros_like(xibar_np1)
-                        psibar_n = psibar_np1.copy()
-                        psibar_np1 = np.zeros_like(psibar_np1)
-                        # comment out ubar and vbar for solid body rotation
-                        ubar_n = ubar_np1.copy()
-                        ubar_np1 = np.zeros_like(ubar_n)
-                        vbar_n = vbar_np1.copy()
-                        vbar_np1 = np.zeros_like(vbar_n)
+                        u,v = self.calc_UV(psibar_np1)
+                        self.ubar = np.append(self.ubar,[u],axis=0)
+                        self.vbar = np.append(self.vbar,[v],axis=0)
+       
 
-                        # comment out ubar and vbar for solid body rotation
-                        return F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1, ubar_n, ubar_np1, vbar_n, vbar_np1
+                    # reset values
+                    self.F_nm2 = self.F_nm1.copy()
+                    self.F_nm1 = self.F_n.copy()
+                    self.F_n = np.zeros_like(self.F_n)
+                    self.xibar_n = xibar_np1.copy()
+                    self.psibar_n = psibar_np1.copy()
+
+                    # comment out ubar and vbar for solid body rotation
+                    #return F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1
                 return wrapper
 
             def forward_Euler(xibar_n,dt,F_n,F_nm1,F_nm2):
@@ -404,43 +327,89 @@ class Barotropic:
 
             # first two time steps with forward Euler
             print('ts=1')
-            # comment out ubar and vbar for solid body rotation
-            func_to_run = time_step(scheme=forward_Euler,\
-                F_nm2=F_nm2, F_nm1=F_nm1, F_n=F_n, xibar_n=xibar_n, xibar_np1=xibar_np1, \
-                    psibar_n=psibar_n, psibar_np1=psibar_np1,ubar_n=ubar_n,ubar_np1=ubar_np1,\
-                        vbar_n=vbar_n,vbar_np1=vbar_np1)
-            # comment out for solid body rotation
-            F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1, ubar_n, ubar_np1, vbar_n, vbar_np1 = func_to_run()
-            # un comment for solid body rotation
+            func_to_run = time_step(scheme=forward_Euler,t=1,dumpFreq=dumpFreqTS)#,\
+                #F_nm2=F_nm2, F_nm1=F_nm1, F_n=F_n, xibar_n=xibar_n, xibar_np1=xibar_np1, \
+                    #psibar_n=psibar_n, psibar_np1=psibar_np1)
             #F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1 = func_to_run()
+            func_to_run()
 
             print('ts=2')
-            # comment out ubar and vbar for solid body rotation
-            func_to_run = time_step(scheme=forward_Euler,\
-                F_nm2=F_nm2, F_nm1=F_nm1, F_n=F_n, xibar_n=xibar_n, xibar_np1=xibar_np1, \
-                    psibar_n=psibar_n, psibar_np1=psibar_np1,ubar_n=ubar_n,ubar_np1=ubar_np1,\
-                        vbar_n=vbar_n,vbar_np1=vbar_np1)
-            # comment out for solid body rotation
-            F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1, ubar_n, ubar_np1, vbar_n, vbar_np1 = func_to_run()
-            # un comment for solid body rotation
+            func_to_run = time_step(scheme=forward_Euler,t=2,dumpFreq=dumpFreqTS)#,\
+                #F_nm2=F_nm2, F_nm1=F_nm1, F_n=F_n, xibar_n=xibar_n, xibar_np1=xibar_np1, \
+                    #psibar_n=psibar_n, psibar_np1=psibar_np1)
             #F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1 = func_to_run()
+            func_to_run()
 
             # all other time steps with AB3:
-            for t in range(3,Nt):
+            for t in range(3,Nt+1):
                 print('ts='+str(t))
-                # comment out ubar and vbar for solid body rotation
-                func_to_run = time_step(scheme=AB3,\
-                F_nm2=F_nm2, F_nm1=F_nm1, F_n=F_n, xibar_n=xibar_n, xibar_np1=xibar_np1, \
-                    psibar_n=psibar_n, psibar_np1=psibar_np1,ubar_n=ubar_n,ubar_np1=ubar_np1,\
-                        vbar_n=vbar_n,vbar_np1=vbar_np1)
-                # comment out for solid body rotation
-                F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1, ubar_n, ubar_np1, vbar_n, vbar_np1 = func_to_run()
-                # un comment for solid body rotation
+                func_to_run = time_step(scheme=AB3,t=t,dumpFreq=dumpFreqTS)#,\
+                #F_nm2=F_nm2, F_nm1=F_nm1, F_n=F_n, xibar_n=xibar_n, xibar_np1=xibar_np1, \
+                    #psibar_n=psibar_n, psibar_np1=psibar_np1)
                 #F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1 = func_to_run()
+                func_to_run()
+            
+            dataset_return = xr.Dataset(
+                data_vars = dict(
+                    xi = xr.DataArray(
+                        self.xibar,
+                        dims = ['T','YG','XG'],
+                        coords = {
+                            'T': np.arange(0,int(self.Nt*self.dt)+1,self.dumpFreq),
+                            'YG': self.YG,
+                            'XG': self.XG
+                        }
+                    ),
+                    psi = xr.DataArray(
+                        self.psibar,
+                        dims = ['T','YG','XG'],
+                        coords = {
+                            'T': np.arange(0,int(self.Nt*self.dt)+1,self.dumpFreq),
+                            'YG': self.YG,
+                            'XG': self.XG
+                        }
+                    ),
+                    u = xr.DataArray(
+                        self.ubar,
+                        dims = ['T','YC','XG'],
+                        coords = {
+                            'T': np.arange(0,int(self.Nt*self.dt)+1,self.dumpFreq),
+                            'YC': self.YC,
+                            'XG': self.XG
+                        }
+                    ),
+                    v = xr.DataArray(
+                        self.vbar,
+                        dims = ['T','YG','XC'],
+                        coords = {
+                            'T': np.arange(0,int(self.Nt*self.dt)+1,self.dumpFreq),
+                            'YG': self.YG,
+                            'XC': self.XC
+                        }
+                    )
+                ),
+                coords = dict(
+                    T = np.arange(0,int(self.Nt*self.dt)+1,self.dumpFreq),
+                    YG = self.YG,
+                    XG = self.XG
+                )
 
-            return psibar_n, xibar_n
+            )
 
-    def advection_new(self,xi,psi):
+            return dataset_return
+
+    def calc_UV(self,psi):
+
+        h = np.array(self.bathy)
+        psi = np.array(psi)
+
+        v = (2/self.d)*((psi[:,1:] - psi[:,:-1])/(h[:,:-1] + h[:,1:]))
+        u = -(2/self.d)*((psi[1:,:] - psi[:-1,:])/(h[:-1,:] + h[1:,:]))
+
+        return u,v
+
+
+    def advection(self,xi,psi):
 
         # calculate absolute velocity
         zeta = xi + self.f
@@ -453,16 +422,6 @@ class Barotropic:
         # get bathy as np array
         h = np.array(self.bathy)
 
-        '''v_YGXC = np.array((psi_YCXC[:,1:] - psi_YCXC[:,:-1])/self.d) 
-        u_YCXG = np.array((psi_YCXC[:-1,:] - psi_YCXC[1:,:])/self.d) 
-
-        adv = (1/(2*self.d*self.bathy[1:-1,1:-1]))*((zeta[1:-1,1:-1] + zeta[2:,1:-1])*v_YGXC[1:,:] + \
-            (zeta[1:-1,1:-1] + zeta[1:-1,2:])*u_YCXG[:,1:] - \
-                (zeta[1:-1,1:-1] + zeta[:-2,1:-1])*v_YGXC[:-1,:] - \
-                    (zeta[1:-1,1:-1] + zeta[1:-1,:-2])*u_YCXG[:,:-1]) 
-
-        adv = np.pad(adv,((1,1)),constant_values=0)'''
-
         # calculate area average of advection term 
         # area average is take over the grid cell centred at the vorticity point, away from the boundaries
         adv = (1/(self.d**2))*(((psi_YCXC[1:,1:] - psi_YCXC[1:,:-1])*(zeta[1:-1,1:-1] + zeta[2:,1:-1]))/(h[1:-1,1:-1] + h[2:,1:-1]) - \
@@ -472,8 +431,6 @@ class Barotropic:
 
         # pad with zero values on boundaries
         adv = np.pad(adv,((1,1)),constant_values=0)
-        
-        self.adv = np.append(self.adv,[adv],axis=0)
 
         return adv
 
@@ -555,3 +512,68 @@ class Barotropic:
             }
         )
     
+
+# %%
+'''Nx = 50
+Ny = 50
+test = Barotropic(d=5000,Nx=Nx,Ny=Ny,bathy=100*np.ones((Ny+1,Nx+1)),f0=0.7E-4,beta=0)
+# %%
+test.gen_init_psi(k_peak=2,const=1000)
+# %%
+test.xi_from_psi()
+# %%
+X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
+fig,axs = plt.subplots(1,1)
+im = axs.contour(X,Y,test.psibar_0,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('$\overline{\psi}$')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title('Initial $\overline{\psi}$')
+plt.show()
+
+X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
+fig,axs = plt.subplots(1,1)
+im = axs.contourf(X,Y,test.xibar_0,levels=50,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('$\overline{\\xi}$')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title('Initial $\overline{\\xi}$')
+plt.show()
+# %%
+out_data = test.model(dt=1000,Nt=10,gamma_q=0.1,r_BD=100,r_diff=0,tau_0=0,rho_0=1000,dumpFreq=1000*10)
+
+#%%
+
+print(out_data.xi[1])
+# %%
+
+t = 1 
+
+X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
+fig,axs = plt.subplots(1,1)
+im = axs.contour(X,Y,out_data.psi[t],cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('$\overline{\psi}$')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title('Initial $\overline{\psi}$')
+plt.show()
+
+X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
+fig,axs = plt.subplots(1,1)
+im = axs.contourf(X,Y,out_data.xi[t].values,levels=50,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+axs.set_aspect(1)
+cbar = plt.colorbar(im)
+cbar.set_label('$\overline{\\xi}$')
+plt.xlabel('x (km)')
+plt.ylabel('y (km)')
+plt.title('Initial $\overline{\\xi}$')
+plt.show()'''
+
+
+# %%
