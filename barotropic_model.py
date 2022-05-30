@@ -442,16 +442,18 @@ class Barotropic:
 
     def advection_new(self,xi,psi):
 
-        # interpolate psi onto YCXC points
-
+        # calculate absolute velocity
         zeta = xi + self.f
-
         zeta = np.array(zeta)
 
+        # interpolate psi onto cell centres
         f_psi = interp.interp2d(self.XG,self.YG,psi)
         psi_YCXC = np.array(f_psi(self.XC,self.YC))
 
-        v_YGXC = np.array((psi_YCXC[:,1:] - psi_YCXC[:,:-1])/self.d) 
+        # get bathy as np array
+        h = np.array(self.bathy)
+
+        '''v_YGXC = np.array((psi_YCXC[:,1:] - psi_YCXC[:,:-1])/self.d) 
         u_YCXG = np.array((psi_YCXC[:-1,:] - psi_YCXC[1:,:])/self.d) 
 
         adv = (1/(2*self.d*self.bathy[1:-1,1:-1]))*((zeta[1:-1,1:-1] + zeta[2:,1:-1])*v_YGXC[1:,:] + \
@@ -459,6 +461,16 @@ class Barotropic:
                 (zeta[1:-1,1:-1] + zeta[:-2,1:-1])*v_YGXC[:-1,:] - \
                     (zeta[1:-1,1:-1] + zeta[1:-1,:-2])*u_YCXG[:,:-1]) 
 
+        adv = np.pad(adv,((1,1)),constant_values=0)'''
+
+        # calculate area average of advection term 
+        # area average is take over the grid cell centred at the vorticity point, away from the boundaries
+        adv = (1/(self.d**2))*(((psi_YCXC[1:,1:] - psi_YCXC[1:,:-1])*(zeta[1:-1,1:-1] + zeta[2:,1:-1]))/(h[1:-1,1:-1] + h[2:,1:-1]) - \
+            ((psi_YCXC[1:,1:] - psi_YCXC[:-1,1:])*(zeta[1:-1,1:-1] + zeta[1:-1,2:]))/(h[1:-1,1:-1] + h[1:-1,2:]) - \
+                ((psi_YCXC[:-1,1:] - psi_YCXC[:-1,:-1])*(zeta[1:-1,1:-1] + zeta[:-2,1:-1]))/(h[1:-1,1:-1] + h[:-2,1:-1]) + \
+                    ((psi_YCXC[1:,:-1] - psi_YCXC[:-1,:-1])*(zeta[1:-1,1:-1] + zeta[1:-1,:-2]))/(h[1:-1,1:-1] + h[1:-1,:-2]))
+
+        # pad with zero values on boundaries
         adv = np.pad(adv,((1,1)),constant_values=0)
         
         self.adv = np.append(self.adv,[adv],axis=0)
