@@ -8,6 +8,7 @@ import scipy as sp
 import scipy.sparse.linalg as linalg
 import matplotlib.colors as colors
 import scipy.interpolate as interp
+import time
 
 #%%
 
@@ -121,6 +122,10 @@ class Barotropic:
                 }
             )
 
+            ubar_0,vbar_0 = self.calc_UV(self.psibar_0)
+            self.ubar_0 = ubar_0
+            self.vbar_0 = vbar_0
+
     def init_xi(self,xi):
         try:
             np.shape(xi) == ((self.NyG,self.NxG))
@@ -172,12 +177,19 @@ class Barotropic:
             print('Specify initial psi or run init_psi() to calculate inttial xi from initial psi.')
         else:
             #calculate initial xibar from initial psibar
-            xibar_0 = np.array((self.psibar_0.differentiate(coord='XG').differentiate(coord='XG') + \
+            '''xibar_0 = np.array((self.psibar_0.differentiate(coord='XG').differentiate(coord='XG') + \
                 self.psibar_0.differentiate(coord='YG').differentiate(coord='YG'))/self.bathy - \
                     (self.bathy.differentiate(coord='XG')*self.psibar_0.differentiate(coord='XG') + 
-                    self.bathy.differentiate(coord='YG')*self.psibar_0.differentiate(coord='YG'))/(self.bathy**2))
+                    self.bathy.differentiate(coord='YG')*self.psibar_0.differentiate(coord='YG'))/(self.bathy**2))'''
 
-            xibar_0 = np.pad(xibar_0[1:-1,1:-1],((1,1)),constant_values=0)
+            h = np.array(self.bathy)
+            psi = np.array(self.psibar_0)
+
+            xibar_0 = (psi[1:-1,2:] + psi[1:-1,:-2] + psi[2:,1:-1] + psi[:-2,1:-1] - 4*psi[1:-1,1:-1])/(h[1:-1,1:-1]*(self.d**2)) - \
+                ((psi[1:-1,2:] - psi[1:-1,:-2])*(h[1:-1,2:] - h[1:-1,:-2]) + \
+                    (psi[2:,1:-1] - psi[:-2,1:-1])*(h[2:,1:-1] - h[:-2,1:-1]))/((h[1:-1,1:-1]**2)*(self.d**2))
+ 
+            xibar_0 = np.pad(xibar_0,((1,1)),constant_values=0)
 
             self.xibar_0 = xr.DataArray(
                 xibar_0,
@@ -259,7 +271,6 @@ class Barotropic:
             def time_step(scheme,**kw):
                 def wrapper(*args,**kwargs):
 
-
                     # calculate advection term
                     adv_n = self.advection(self.xibar_n,self.psibar_n)
 
@@ -269,43 +280,35 @@ class Barotropic:
                     BD_n = self.r_BD*self.xibar_n
 
                     # diffusion of vorticity
-                    xibar_n = xr.DataArray(
-                        self.xibar_n,
-                        dims = ['YG','XG'],
-                        coords = {
-                            'YG': self.YG,
-                            'XG': self.XG
-                        }
-                    )
-
-                    diff_n = self.r_diff*(xibar_n.differentiate(coord='XG').differentiate(coord='XG') + \
-                        xibar_n.differentiate(coord='YG').differentiate(coord='YG'))
+                    diff_xi = self.diffusion_xi(self.xibar_n)
+                    diff_n = self.r_diff*diff_xi
 
                     # F_n
-                    F_n = -adv_n - BD_n - diff_n + self.wind_stress
+                    F_n = -adv_n - BD_n + diff_n + self.wind_stress
 
                     # calculate new value of xibar
                     xibar_np1 = scheme(xibar_n=self.xibar_n,dt=self.dt,F_n=F_n,F_nm1=self.F_nm1,F_nm2=self.F_nm2)
 
                     # uncomment for solid body rotation
-                    # psibar_np1 = self.psibar[-1]
+                    # psibar_np1 = self.psibar_n
 
                     # SOLVE FOR PSIBAR
-                    # comment out psibar_np1, ubar_np1 and vbar_np1 for solid body rotation
+                    # comment out for solid body rotation
                     psibar_np1 = self.LU.solve((-np.array(xibar_np1)).flatten())
                     psibar_np1 = psibar_np1.reshape((self.NyG,self.NxG))
 
                     # DUMP XIBAR AND PSIBAR AT CERTAIN INTERVALS
 
                     if kw.get('t')%kw.get('dumpFreq') == 0:
+                        # calculate u and v from psi
+                        u,v = self.calc_UV(psibar_np1)
+
+                        # save xi, psi, u and v
                         self.xibar = np.append(self.xibar,[xibar_np1],axis=0)
                         self.psibar = np.append(self.psibar,[psibar_np1],axis=0)
-
-                        u,v = self.calc_UV(psibar_np1)
                         self.ubar = np.append(self.ubar,[u],axis=0)
                         self.vbar = np.append(self.vbar,[v],axis=0)
        
-
                     # reset values
                     self.F_nm2 = self.F_nm1.copy()
                     self.F_nm1 = self.F_n.copy()
@@ -313,8 +316,6 @@ class Barotropic:
                     self.xibar_n = xibar_np1.copy()
                     self.psibar_n = psibar_np1.copy()
 
-                    # comment out ubar and vbar for solid body rotation
-                    #return F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1
                 return wrapper
 
             def forward_Euler(xibar_n,dt,F_n,F_nm1,F_nm2):
@@ -326,27 +327,15 @@ class Barotropic:
                 return xibar_np1
 
             # first two time steps with forward Euler
-            print('ts=1')
             func_to_run = time_step(scheme=forward_Euler,t=1,dumpFreq=dumpFreqTS)#,\
-                #F_nm2=F_nm2, F_nm1=F_nm1, F_n=F_n, xibar_n=xibar_n, xibar_np1=xibar_np1, \
-                    #psibar_n=psibar_n, psibar_np1=psibar_np1)
-            #F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1 = func_to_run()
             func_to_run()
 
-            print('ts=2')
             func_to_run = time_step(scheme=forward_Euler,t=2,dumpFreq=dumpFreqTS)#,\
-                #F_nm2=F_nm2, F_nm1=F_nm1, F_n=F_n, xibar_n=xibar_n, xibar_np1=xibar_np1, \
-                    #psibar_n=psibar_n, psibar_np1=psibar_np1)
-            #F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1 = func_to_run()
             func_to_run()
 
             # all other time steps with AB3:
             for t in range(3,Nt+1):
-                print('ts='+str(t))
                 func_to_run = time_step(scheme=AB3,t=t,dumpFreq=dumpFreqTS)#,\
-                #F_nm2=F_nm2, F_nm1=F_nm1, F_n=F_n, xibar_n=xibar_n, xibar_np1=xibar_np1, \
-                    #psibar_n=psibar_n, psibar_np1=psibar_np1)
-                #F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1 = func_to_run()
                 func_to_run()
             
             dataset_return = xr.Dataset(
@@ -416,8 +405,8 @@ class Barotropic:
         zeta = np.array(zeta)
 
         # interpolate psi onto cell centres
-        f_psi = interp.interp2d(self.XG,self.YG,psi)
-        psi_YCXC = np.array(f_psi(self.XC,self.YC))
+        psi = np.array(psi)
+        psi_YCXC = (psi[:-1,:-1] + psi[:-1,1:] + psi[1:,:-1] + psi[1:,1:])/4
 
         # get bathy as np array
         h = np.array(self.bathy)
@@ -434,70 +423,72 @@ class Barotropic:
 
         return adv
 
+    def diffusion_xi(self,xi):
+
+        xi = np.array(xi)
+
+        diffusion = (1/self.d**2)*(xi[1:-1,2:] + xi[1:-1,:-2] + xi[2:,1:-1] + xi[:-2,1:-1] - 4*xi[1:-1,1:-1])
+
+        diffusion = np.pad(diffusion,((1,1)),constant_values=0)
+
+        return diffusion
+
+
+
     def elliptic(self):
 
         # create coefficient matrices
+        h = np.array(self.bathy)
 
-        C2 = np.array([np.concatenate(([1],\
-            [(-1/((self.d**2)*self.bathy[j,i]) + (self.bathy[j,i+1] - self.bathy[j,i-1])/(1*(self.d**2)*(self.bathy[j,i]**2))) \
-                for i in range(1,self.NxG-1)],\
-                [1])) for j in range(self.NyG)])
+        C2 = (-1/(h[1:-1,1:-1]*self.d**2)) + (1/(4*(h[1:-1,1:-1]**2)*(self.d**2)))*(h[1:-1,2:] - h[1:-1,:-2])
+        C2 = np.pad(C2,((1,1)),constant_values=1)
 
-        C3 = np.array([np.concatenate(([1],\
-            [(-1/((self.d**2)*self.bathy[j,i]) - (self.bathy[j,i+1] - self.bathy[j,i-1])/(1*(self.d**2)*(self.bathy[j,i]**2))) \
-                for i in range(1,self.NxG-1)],\
-                [1])) for j in range(self.NyG)])
-        
-        C4 = np.concatenate(([np.ones(self.NxG)],\
-            [[(-1/((self.d**2)*self.bathy[j,i]) + (self.bathy[j+1,i] - self.bathy[j-1,i])/(1*(self.d**2)*(self.bathy[j,i]**2))) \
-                for i in range(self.NxG)] for j in range(1,self.NyG-1)],\
-                [np.ones(self.NxG)]))
+        C3 = (-1/(h[1:-1,1:-1]*self.d**2)) - (1/(4*(h[1:-1,1:-1]**2)*(self.d**2)))*(h[1:-1,2:] - h[1:-1,:-2])
+        C3 = np.pad(C3,((1,1)),constant_values=1)
 
-        C5 = np.concatenate(([np.ones(self.NxG)],\
-            [[(-1/((self.d**2)*self.bathy[j,i]) - (self.bathy[j+1,i] - self.bathy[j-1,i])/(1*(self.d**2)*(self.bathy[j,i]**2))) \
-                for i in range(self.NxG)] for j in range(1,self.NyG-1)],\
-                [np.ones(self.NxG)]))
+        C4 = (-1/(h[1:-1,1:-1]*self.d**2)) + (1/(4*(h[1:-1,1:-1]**2)*(self.d**2)))*(h[2:,1:-1] - h[:-2,1:-1])
+        C4 = np.pad(C4,((1,1)),constant_values=1)
 
-        C6 = np.array([np.concatenate(([1],\
-            [4/(self.bathy[j,i]*(self.d**2)) for i in range(1,self.NxG-1)],\
-                [1])) for j in range(self.NyG)])
+        C5 = (-1/(h[1:-1,1:-1]*self.d**2)) - (1/(4*(h[1:-1,1:-1]**2)*(self.d**2)))*(h[2:,1:-1] - h[:-2,1:-1])
+        C5 = np.pad(C5,((1,1)),constant_values=1)
+
+        C6 = 4/(h[1:-1,1:-1]*self.d**2)
+        C6 = np.pad(C6,((1,1)),constant_values=1)
+
     
         # create matrix to solve for psibar
 
-        centre_ones = np.concatenate(([-1],[0 for i in range(1,self.NxG-1)],[-1]))
+        centre_ones = np.concatenate(([-1],np.zeros(self.NxG-2),[-1]))
         diags_ones = np.concatenate((-1*np.ones(self.NxG),np.tile(centre_ones,self.NyG-2),-1*np.ones(self.NxG)))
-        diagonal_ones = np.diagflat(diags_ones)
+        diagonal_ones = sp.sparse.diags(diags_ones)
 
-        centre = np.concatenate(([0],[1 for i in range(1,self.NxG-1)],[0]))
+        centre = np.concatenate(([0],np.ones(self.NxG-2),[0]))
+
         diags = np.concatenate((np.zeros(self.NxG),np.tile(centre,self.NyG-2),np.zeros(self.NxG)))*C6.flatten()
-        diagonal = np.diagflat(diags)
+        diagonal = sp.sparse.diags(diags)
 
-        centre_pi = np.concatenate(([0],[1 for i in range(1,self.NxG-1)],[0]))
-        diags_pi = np.concatenate((np.zeros(self.NxG),np.tile(centre_pi,self.NyG-2),np.zeros(self.NxG)))*C2.flatten()
-        diag_pi = np.diagflat(diags_pi[:len(diags_pi)-1],k=1)
+        diags_pi = np.concatenate((np.zeros(self.NxG),np.tile(centre,self.NyG-2),np.zeros(self.NxG)))*C2.flatten()
+        diag_pi = sp.sparse.diags(diags_pi[:len(diags_pi)-1],offsets=1)
 
-        centre_mi = np.concatenate(([0],[1 for i in range(1,self.NxG-1)],[0]))
-        diags_mi = np.concatenate((np.zeros(self.NxG),np.tile(centre_mi,self.NyG-2),np.zeros(self.NxG)))*C3.flatten()
-        diag_mi = np.diagflat(diags_mi[1:],k=-1)
+        diags_mi = np.concatenate((np.zeros(self.NxG),np.tile(centre,self.NyG-2),np.zeros(self.NxG)))*C3.flatten()
+        diag_mi = sp.sparse.diags(diags_mi[1:],offsets=-1)
 
-        centre_pj = np.concatenate(([0],[1 for i in range(1,self.NxG-1)],[0]))
-        diags_pj = np.concatenate((np.zeros(self.NxG),np.tile(centre_pj,self.NyG-2),np.zeros(self.NxG)))*C4.flatten()
-        diag_pj = np.diagflat(diags_pj[:len(diags_pi)-self.NxG],k=self.NxG)
+        diags_pj = np.concatenate((np.zeros(self.NxG),np.tile(centre,self.NyG-2),np.zeros(self.NxG)))*C4.flatten()
+        diag_pj = sp.sparse.diags(diags_pj[:len(diags_pi)-self.NxG],offsets=self.NxG)
 
-        centre_mj = np.concatenate(([0],[1 for i in range(1,self.NxG-1)],[0]))
-        diags_mj = np.concatenate((np.zeros(self.NxG),np.tile(centre_mj,self.NyG-2),np.zeros(self.NxG)))*C5.flatten()
-        diag_mj = np.diagflat(diags_mj[self.NxG:],k=-self.NxG)
+        diags_mj = np.concatenate((np.zeros(self.NxG),np.tile(centre,self.NyG-2),np.zeros(self.NxG)))*C5.flatten()
+        diag_mj = sp.sparse.diags(diags_mj[self.NxG:],offsets=-self.NxG)
 
         diagonal_total = diagonal + diag_pi + diag_mi + diag_pj + diag_mj + diagonal_ones
         self.diagonal = diagonal_total
-        LU = linalg.splu(sp.sparse.csc_matrix(diagonal_total))
 
+        LU = linalg.splu(sp.sparse.csc_matrix(diagonal_total))
         self.LU = LU
 
     def calc_wind_stress(self):
         # calculate the wind stress to be added to F_n
 
-        tau = np.array(self.tau)
+        '''tau = np.array(self.tau)
         bathy = self.bathy
 
         tau_xi = (-tau[2:,1:-1] + tau[:-2,1:-1])/(2*self.d*self.rho_0*bathy[1:-1,1:-1])
@@ -510,52 +501,38 @@ class Barotropic:
                 'YG': self.YG,
                 'XG': self.XG
             }
+        )'''
+
+        dtau_dy = [((2*self.tau_0*np.pi)/(self.Ly)*np.sin((2*np.pi*y)/self.Ly))*np.ones(self.NxG) for y in self.YG]*(1/self.bathy)
+
+        tau_xi = (-1/self.rho_0)*(dtau_dy - (self.tau*self.bathy.differentiate(coord='YG'))/(self.bathy**2))
+
+        self.wind_stress = xr.DataArray(
+            tau_xi,
+            dims = ['YG','XG'],
+            coords = {
+                'YG': self.YG,
+                'XG': self.XG
+            }
         )
+
+
     
 
 # %%
-'''Nx = 50
-Ny = 50
-test = Barotropic(d=5000,Nx=Nx,Ny=Ny,bathy=100*np.ones((Ny+1,Nx+1)),f0=0.7E-4,beta=0)
-# %%
-test.gen_init_psi(k_peak=2,const=1000)
-# %%
-test.xi_from_psi()
-# %%
-X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
-fig,axs = plt.subplots(1,1)
-im = axs.contour(X,Y,test.psibar_0,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
-axs.set_aspect(1)
-cbar = plt.colorbar(im)
-cbar.set_label('$\overline{\psi}$')
-plt.xlabel('x (km)')
-plt.ylabel('y (km)')
-plt.title('Initial $\overline{\psi}$')
-plt.show()
+Nx = 200
+Ny = 400
+example_wind = Barotropic(d=5000,Nx=Nx,Ny=Ny,bathy=5000*np.ones((Ny+1,Nx+1)),f0=0.7E-4,beta=2.E-11)
 
-X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
-fig,axs = plt.subplots(1,1)
-im = axs.contourf(X,Y,test.xibar_0,levels=50,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
-axs.set_aspect(1)
-cbar = plt.colorbar(im)
-cbar.set_label('$\overline{\\xi}$')
-plt.xlabel('x (km)')
-plt.ylabel('y (km)')
-plt.title('Initial $\overline{\\xi}$')
-plt.show()
-# %%
-out_data = test.model(dt=1000,Nt=10,gamma_q=0.1,r_BD=100,r_diff=0,tau_0=0,rho_0=1000,dumpFreq=1000*10)
+#%%
+example_wind.gen_init_psi(k_peak=2,const=1000)
+example_wind.xi_from_psi()
 
 #%%
 
-print(out_data.xi[1])
-# %%
-
-t = 1 
-
-X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
+X,Y = np.meshgrid(example_wind.XG/1000,example_wind.YG/1000)
 fig,axs = plt.subplots(1,1)
-im = axs.contour(X,Y,out_data.psi[t],cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+im = axs.contour(X,Y,example_wind.psibar_0,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
 axs.set_aspect(1)
 cbar = plt.colorbar(im)
 cbar.set_label('$\overline{\psi}$')
@@ -564,16 +541,23 @@ plt.ylabel('y (km)')
 plt.title('Initial $\overline{\psi}$')
 plt.show()
 
-X,Y = np.meshgrid(test.XG/1000,test.YG/1000)
+X,Y = np.meshgrid(example_wind.XG/1000,example_wind.YG/1000)
 fig,axs = plt.subplots(1,1)
-im = axs.contourf(X,Y,out_data.xi[t].values,levels=50,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
+im = axs.contourf(X,Y,example_wind.xibar_0,levels=50,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
 axs.set_aspect(1)
 cbar = plt.colorbar(im)
 cbar.set_label('$\overline{\\xi}$')
 plt.xlabel('x (km)')
 plt.ylabel('y (km)')
 plt.title('Initial $\overline{\\xi}$')
-plt.show()'''
+plt.show()
 
+#%%
+
+example_wind_data = example_wind.model(dt=400,Nt=10,gamma_q=0,r_BD=1.E-7,r_diff=1,tau_0=0.1,rho_0=1000,dumpFreq=4000)
+
+
+
+# %%
 
 # %%
