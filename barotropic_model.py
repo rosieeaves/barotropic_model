@@ -177,10 +177,6 @@ class Barotropic:
             print('Specify initial psi or run init_psi() to calculate inttial xi from initial psi.')
         else:
             #calculate initial xibar from initial psibar
-            '''xibar_0 = np.array((self.psibar_0.differentiate(coord='XG').differentiate(coord='XG') + \
-                self.psibar_0.differentiate(coord='YG').differentiate(coord='YG'))/self.bathy - \
-                    (self.bathy.differentiate(coord='XG')*self.psibar_0.differentiate(coord='XG') + 
-                    self.bathy.differentiate(coord='YG')*self.psibar_0.differentiate(coord='YG'))/(self.bathy**2))'''
 
             h = np.array(self.bathy)
             psi = np.array(self.psibar_0)
@@ -205,7 +201,7 @@ class Barotropic:
             self.vbar_0 = vbar_0
 
 
-    def model(self,dt,Nt,gamma_q,r_BD,r_diff,tau_0,rho_0,dumpFreq):
+    def model(self,dt,Nt,gamma_q,r_BD,r_diff,tau_0,rho_0,dumpFreq,meanDumpFreq):
 
         try:
             self.psibar_0
@@ -230,6 +226,7 @@ class Barotropic:
             self.tau_0 = tau_0 
             self.rho_0 = rho_0
             self.dumpFreq = dumpFreq
+            self.meanDumpFreq = meanDumpFreq
 
             # initialise parameters pisbar, zetabar, and grad xibar components
             self.psibar_n = self.psibar_0
@@ -242,6 +239,17 @@ class Barotropic:
             self.psibar = [self.psibar_0]
             self.ubar = [self.ubar_0]
             self.vbar = [self.vbar_0]
+
+            # create mean parameters
+            self.xibar_mean = self.xibar_0
+            self.psibar_mean = self.psibar_0
+            self.ubar_mean = self.ubar_0
+            self.vbar_mean = self.vbar_0
+            self.xi_mean = [np.zeros_like(self.xibar_0)]
+            self.psi_mean = [np.zeros_like(self.psibar_0)]
+            self.u_mean = [np.zeros_like(self.ubar_0)]
+            self.v_mean = [np.zeros_like(self.vbar_0)]
+            
 
             # initialise parameters to store F_n, F_nm1 and F_nm2 to calculate xibar_np1 with AB3
             self.F_n = np.zeros_like(self.xibar_n)
@@ -261,9 +269,6 @@ class Barotropic:
             )
 
             self.calc_wind_stress()
-
-            # calculate dump frequency in number of timesteps
-            dumpFreqTS = int(self.dumpFreq/self.dt)
 
             # time stepping function
 
@@ -297,6 +302,14 @@ class Barotropic:
                     psibar_np1 = self.LU.solve((-np.array(xibar_np1)).flatten())
                     psibar_np1 = psibar_np1.reshape((self.NyG,self.NxG))
 
+                    ubar_np1,vbar_np1 = self.calc_UV(psibar_np1)
+
+                    # add to mean data
+                    self.xibar_mean = self.xibar_mean + xibar_np1
+                    self.psibar_mean = self.psibar_mean + psibar_np1
+                    self.ubar_mean = self.ubar_mean + ubar_np1
+                    self.vbar_mean = self.vbar_mean + vbar_np1
+
                     # DUMP XIBAR AND PSIBAR AT CERTAIN INTERVALS
 
                     if kw.get('t')%kw.get('dumpFreq') == 0:
@@ -308,6 +321,22 @@ class Barotropic:
                         self.psibar = np.append(self.psibar,[psibar_np1],axis=0)
                         self.ubar = np.append(self.ubar,[u],axis=0)
                         self.vbar = np.append(self.vbar,[v],axis=0)
+
+                    if kw.get('t')%kw.get('meanDumpFreq') == 0:
+
+                        # dump mean data
+                        self.xi_mean = np.append(self.xi_mean,[(self.xibar_mean*self.dt)/self.meanDumpFreq],axis=0)
+                        self.psi_mean = np.append(self.psi_mean,[(self.psibar_mean*self.dt)/self.meanDumpFreq],axis=0)
+                        self.u_mean = np.append(self.u_mean,[(self.ubar_mean*self.dt)/self.meanDumpFreq],axis=0)
+                        self.v_mean = np.append(self.v_mean,[(self.vbar_mean*self.dt)/self.meanDumpFreq],axis=0)
+
+                        # reset mean data to zero
+                        self.xibar_mean = np.zeros_like(self.xibar_mean)
+                        self.psibar_mean = np.zeros_like(self.psibar_mean)
+                        self.ubar_mean = np.zeros_like(self.ubar_mean)
+                        self.vbar_mean = np.zeros_like(self.vbar_mean)
+
+                        
        
                     # reset values
                     self.F_nm2 = self.F_nm1.copy()
@@ -318,6 +347,10 @@ class Barotropic:
 
                 return wrapper
 
+            # calculate dump frequency in number of timesteps
+            dumpFreqTS = int(self.dumpFreq/self.dt)
+            meanDumpFreqTS = int(self.meanDumpFreq/self.dt)
+
             def forward_Euler(xibar_n,dt,F_n,F_nm1,F_nm2):
                 xibar_np1 = xibar_n + dt*F_n
                 return xibar_np1
@@ -327,15 +360,15 @@ class Barotropic:
                 return xibar_np1
 
             # first two time steps with forward Euler
-            func_to_run = time_step(scheme=forward_Euler,t=1,dumpFreq=dumpFreqTS)#,\
+            func_to_run = time_step(scheme=forward_Euler,t=1,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
             func_to_run()
 
-            func_to_run = time_step(scheme=forward_Euler,t=2,dumpFreq=dumpFreqTS)#,\
+            func_to_run = time_step(scheme=forward_Euler,t=2,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
             func_to_run()
 
             # all other time steps with AB3:
             for t in range(3,Nt+1):
-                func_to_run = time_step(scheme=AB3,t=t,dumpFreq=dumpFreqTS)#,\
+                func_to_run = time_step(scheme=AB3,t=t,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
                 func_to_run()
             
             dataset_return = xr.Dataset(
@@ -349,11 +382,29 @@ class Barotropic:
                             'XG': self.XG
                         }
                     ),
+                    xi_mean = xr.DataArray(
+                        self.xi_mean[1:,:,:],
+                        dims = ['T_mean','YG','XG'],
+                        coords = {
+                            'T_mean': np.arange(1,int((self.Nt*self.dt)/self.meanDumpFreq)+1),
+                            'YG': self.YG,
+                            'XG': self.XG
+                        }
+                    ),
                     psi = xr.DataArray(
                         self.psibar,
                         dims = ['T','YG','XG'],
                         coords = {
                             'T': np.arange(0,int(self.Nt*self.dt)+1,self.dumpFreq),
+                            'YG': self.YG,
+                            'XG': self.XG
+                        }
+                    ),
+                    psi_mean = xr.DataArray(
+                        self.psi_mean[1:,:,:],
+                        dims = ['T_mean','YG','XG'],
+                        coords = {
+                            'T_mean': np.arange(1,int((self.Nt*self.dt)/self.meanDumpFreq)+1),
                             'YG': self.YG,
                             'XG': self.XG
                         }
@@ -367,6 +418,15 @@ class Barotropic:
                             'XG': self.XG
                         }
                     ),
+                    u_mean = xr.DataArray(
+                        self.u_mean[1:,:,:],
+                        dims = ['T_mean','YC','XG'],
+                        coords = {
+                            'T_mean': np.arange(1,int((self.Nt*self.dt)/self.meanDumpFreq)+1),
+                            'YC': self.YC,
+                            'XG': self.XG
+                        }
+                    ),
                     v = xr.DataArray(
                         self.vbar,
                         dims = ['T','YG','XC'],
@@ -375,12 +435,24 @@ class Barotropic:
                             'YG': self.YG,
                             'XC': self.XC
                         }
+                    ),
+                    v_mean = xr.DataArray(
+                        self.v_mean[1:,:,:],
+                        dims = ['T_mean','YG','XC'],
+                        coords = {
+                            'T_mean': np.arange(1,int((self.Nt*self.dt)/self.meanDumpFreq)+1),
+                            'YG': self.YG,
+                            'XC': self.XC
+                        }
                     )
                 ),
                 coords = dict(
                     T = np.arange(0,int(self.Nt*self.dt)+1,self.dumpFreq),
                     YG = self.YG,
-                    XG = self.XG
+                    XG = self.XG,
+                    YC = self.YC,
+                    XC = self.XC,
+                    T_mean = np.arange(1,int((self.Nt*self.dt)/self.meanDumpFreq)+1)
                 )
 
             )
@@ -520,7 +592,7 @@ class Barotropic:
     
 
 # %%
-Nx = 200
+'''Nx = 200
 Ny = 400
 example_wind = Barotropic(d=5000,Nx=Nx,Ny=Ny,bathy=5000*np.ones((Ny+1,Nx+1)),f0=0.7E-4,beta=2.E-11)
 
@@ -554,10 +626,12 @@ plt.show()
 
 #%%
 
-example_wind_data = example_wind.model(dt=400,Nt=10,gamma_q=0,r_BD=1.E-7,r_diff=1,tau_0=0.1,rho_0=1000,dumpFreq=4000)
+example_wind_data = example_wind.model(dt=400,Nt=40,gamma_q=0,r_BD=1.E-7,r_diff=1,tau_0=0.1,rho_0=1000,dumpFreq=4000,meanDumpFreq=8000)
 
 
 
 # %%
+print(np.shape(example_wind_data.xi_mean))'''
+
 
 # %%
