@@ -14,6 +14,10 @@ import time
 
 class Barotropic:
 
+    ##########################################################################
+    # CLASS INITIALISATION
+    ##########################################################################
+
     def __init__(self,d,Nx,Ny,bathy,f0,beta):
 
         try:
@@ -57,7 +61,12 @@ class Barotropic:
                     'XG': self.XG
                 }
             )
+
+            self.diagnosticsDict()
         
+    ##########################################################################
+    # INITIAL CONDITIONS FUNCTIONS
+    ##########################################################################
 
     def gen_init_psi(self,k_peak,const):
 
@@ -200,8 +209,12 @@ class Barotropic:
             self.ubar_0 = ubar_0
             self.vbar_0 = vbar_0
 
+    ##########################################################################
+    # TIME STEPPING FUNCTIONS
+    ##########################################################################
 
-    def model(self,dt,Nt,gamma_q,r_BD,r_diff,tau_0,rho_0,dumpFreq,meanDumpFreq):
+
+    def model(self,dt,Nt,gamma_q,r_BD,r_diff,tau_0,rho_0,dumpFreq,meanDumpFreq,diags):
 
         try:
             self.psibar_0
@@ -227,6 +240,7 @@ class Barotropic:
             self.rho_0 = rho_0
             self.dumpFreq = dumpFreq
             self.meanDumpFreq = meanDumpFreq
+            self.T = np.arange(0,int(self.Nt*self.dt)+1,self.dumpFreq)
 
             # initialise parameters pisbar, zetabar, and grad xibar components
             self.psibar_n = self.psibar_0
@@ -249,8 +263,18 @@ class Barotropic:
             self.psi_mean = [np.zeros_like(self.psibar_0)]
             self.u_mean = [np.zeros_like(self.ubar_0)]
             self.v_mean = [np.zeros_like(self.vbar_0)]
-            
 
+            # create diagnostic parameters
+            for var in diags:
+                # create array to save data in. Initialise with zeros.
+                setattr(self,var,[np.zeros((len(getattr(self,self.diagnosticsCoordDict[var][1])),\
+                    len(getattr(self,self.diagnosticsCoordDict[var][2]))))])
+                # calculate value from initial conditions and add to array
+                self.diagnosticsFunctsionDict[var](xi=self.xibar_0,psi=self.psibar_0,u=self.ubar_0,v=self.vbar_0)
+                # remove intial zero values
+                setattr(self,var,getattr(self,var)[1:])
+
+            
             # initialise parameters to store F_n, F_nm1 and F_nm2 to calculate xibar_np1 with AB3
             self.F_n = np.zeros_like(self.xibar_n)
             self.F_nm1 = np.zeros_like(self.xibar_n)
@@ -274,6 +298,7 @@ class Barotropic:
 
             #def time_step(scheme,F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1):
             def time_step(scheme,**kw):
+
                 def wrapper(*args,**kwargs):
 
                     # calculate advection term
@@ -314,13 +339,17 @@ class Barotropic:
 
                     if kw.get('t')%kw.get('dumpFreq') == 0:
                         # calculate u and v from psi
-                        u,v = self.calc_UV(psibar_np1)
+                        u_np1,v_np1 = self.calc_UV(psibar_np1)
 
                         # save xi, psi, u and v
                         self.xibar = np.append(self.xibar,[xibar_np1],axis=0)
                         self.psibar = np.append(self.psibar,[psibar_np1],axis=0)
-                        self.ubar = np.append(self.ubar,[u],axis=0)
-                        self.vbar = np.append(self.vbar,[v],axis=0)
+                        self.ubar = np.append(self.ubar,[u_np1],axis=0)
+                        self.vbar = np.append(self.vbar,[v_np1],axis=0)
+
+                        # run diagnostics 
+                        for var in diags:
+                            self.diagnosticsFunctsionDict[var](xi=xibar_np1,psi=psibar_np1,u=u_np1,v=v_np1)
 
                     if kw.get('t')%kw.get('meanDumpFreq') == 0:
 
@@ -453,9 +482,40 @@ class Barotropic:
                     YC = self.YC,
                     XC = self.XC,
                     T_mean = np.arange(1,int((self.Nt*self.dt)/self.meanDumpFreq)+1)
-                )
+                ),
+                attrs = dict(
+                    dt = self.dt,
+                    Nt = self.Nt,
+                    gamma_q = self.gamma_q,
+                    r_BD = self.r_BD,
+                    r_diff = self.r_diff,
+                    tau_0 = self.tau_0,
+                    rho_0 = self.rho_0,
+                    dumpFreq = self.dumpFreq,
+                    meanDumpFreq = self.meanDumpFreq,
+                    dx = self.dx,
+                    dy = self.dy,
+                    Nx = self.Nx,
+                    Ny = self.Ny,
+                    f0 = self.f0,
+                    beta = self.beta
+                ) 
 
             )
+
+            dataset_return['bathy'] = self.bathy
+            dataset_return['f'] = self.f
+
+            for var in diags:
+                dataset_return[var] = xr.DataArray(
+                    getattr(self,var),
+                    dims = self.diagnosticsCoordDict[var],
+                    coords = {
+                        self.diagnosticsCoordDict[var][0]: getattr(self,self.diagnosticsCoordDict[var][0]),
+                        self.diagnosticsCoordDict[var][1]: getattr(self,self.diagnosticsCoordDict[var][1]),
+                        self.diagnosticsCoordDict[var][2]: getattr(self,self.diagnosticsCoordDict[var][2])
+                    }
+                )
 
             return dataset_return
 
@@ -588,50 +648,87 @@ class Barotropic:
             }
         )
 
+    ##########################################################################
+    # DIAGNOSTICS FUNCTIONS
+    ##########################################################################
+
+    def diagnosticsDict(self):
+
+        self.diagnosticsFunctsionDict = {
+            'xi_uFlux': self.calc_xi_uFlux,
+            'xi_vFlux': self.calc_xi_vFlux,
+            'uSquare': self.calc_uSquare,
+            'vSquare': self.calc_vSquare
+        }
+
+        self.diagnosticsCoordDict = {
+            'xi_uFlux': ['T','YG','XG'],
+            'xi_vFlux': ['T','YG','XG'],
+            'uSquare': ['T', 'YC', 'XG'],
+            'vSquare': ['T', 'YG', 'XC']
+        }
+
+    def calc_xi_uFlux(self,xi,psi,u,v):
+
+        xi = np.array(xi)
+        u = np.array(u)
+
+        xi_uFlux = xi[1:-1,1:-1]*((u[1:,1:-1] + u[:-1,1:-1])/2)
+        xi_uFlux = np.pad(xi_uFlux,((1,1)),constant_values=0)
+
+        self.xi_uFlux = np.append(self.xi_uFlux,[xi_uFlux],axis=0)
+
+    def calc_xi_vFlux(self,xi,psi,u,v):
+
+        xi = np.array(xi)
+        v = np.array(v)
+
+        xi_vFlux = xi[1:-1,1:-1]*((v[1:-1,1:] + v[1:-1,:-1])/2)
+        xi_vFlux = np.pad(xi_vFlux,((1,1)),constant_values=0)
+
+        self.xi_vFlux = np.append(self.xi_vFlux,[xi_vFlux],axis=0)
+            
+    def calc_uSquare(self,xi,psi,u,v):
+
+        self.uSquare = np.append(self.uSquare,[u**2],axis=0)
+
+    def calc_vSquare(self,xi,psi,u,v):
+
+        self.vSquare = np.append(self.vSquare,[v**2],axis=0)
+
+
+
 
     
 
 # %%
-'''Nx = 200
-Ny = 400
-example_wind = Barotropic(d=5000,Nx=Nx,Ny=Ny,bathy=5000*np.ones((Ny+1,Nx+1)),f0=0.7E-4,beta=2.E-11)
+Nx = 1000
+Ny = 1000
+test_diags = Barotropic(d=1000,Nx=Nx,Ny=Ny,bathy=5000*np.ones((Ny+1,Nx+1)),f0=0.7E-4,beta=2.E-11)
 
 #%%
-example_wind.gen_init_psi(k_peak=2,const=1000)
-example_wind.xi_from_psi()
+test_diags.gen_init_psi(k_peak=2,const=1E12)
+test_diags.xi_from_psi()
 
-#%%
+X,Y = np.meshgrid(test_diags.XG/1000,test_diags.YG/1000)
 
-X,Y = np.meshgrid(example_wind.XG/1000,example_wind.YG/1000)
-fig,axs = plt.subplots(1,1)
-im = axs.contour(X,Y,example_wind.psibar_0,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
-axs.set_aspect(1)
-cbar = plt.colorbar(im)
-cbar.set_label('$\overline{\psi}$')
-plt.xlabel('x (km)')
-plt.ylabel('y (km)')
-plt.title('Initial $\overline{\psi}$')
+plt.contourf(X,Y,test_diags.xibar_0)
+plt.colorbar()
 plt.show()
 
-X,Y = np.meshgrid(example_wind.XG/1000,example_wind.YG/1000)
-fig,axs = plt.subplots(1,1)
-im = axs.contourf(X,Y,example_wind.xibar_0,levels=50,cmap='RdBu',norm=colors.TwoSlopeNorm(vcenter=0))
-axs.set_aspect(1)
-cbar = plt.colorbar(im)
-cbar.set_label('$\overline{\\xi}$')
-plt.xlabel('x (km)')
-plt.ylabel('y (km)')
-plt.title('Initial $\overline{\\xi}$')
+plt.contour(X,Y,test_diags.psibar_0)
+plt.colorbar()
 plt.show()
-
-#%%
-
-example_wind_data = example_wind.model(dt=400,Nt=40,gamma_q=0,r_BD=1.E-7,r_diff=1,tau_0=0.1,rho_0=1000,dumpFreq=4000,meanDumpFreq=8000)
-
 
 
 # %%
-print(np.shape(example_wind_data.xi_mean))'''
+start_time = time.time_ns()
+diagnostics = ['xi_uFlux','xi_vFlux','uSquare','vSquare']
+data = test_diags.model(dt=1800,Nt=4800,gamma_q=0,r_BD=0,r_diff=2,tau_0=0,rho_0=1000,dumpFreq=86400,meanDumpFreq=864000,diags=diagnostics)
+end_time = time.time_ns()
+print('time = ' + str((end_time - start_time)/1E9))
+data.to_netcdf('./model_data/FDT_FLAT_1km_100days')
 
+# %%
 
 # %%
