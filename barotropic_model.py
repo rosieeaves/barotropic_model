@@ -1,3 +1,5 @@
+#%%
+
 import numpy as np
 import pyfftw.interfaces.numpy_fft as fftw
 import matplotlib.pyplot as plt
@@ -7,6 +9,8 @@ import scipy.sparse.linalg as linalg
 import matplotlib.colors as colors
 import scipy.interpolate as interp
 import time
+
+#%%
 
 class Barotropic:
 
@@ -262,13 +266,18 @@ class Barotropic:
 
             # create diagnostic parameters
             for var in diags:
-                # create array to save data in. Initialise with zeros.
-                setattr(self,var,[np.zeros((len(getattr(self,self.diagnosticsCoordDict[var][1])),\
+                # create array to save data in.
+                setattr(self,var,[self.diagnosticsFunctsionDict[var](xi=self.xibar_0,psi=self.psibar_0,u=self.ubar_0,v=self.vbar_0)])
+                # create variable for np1 time step. Initialise with zeros. 
+                np1_str = var + '_np1'
+                setattr(self,np1_str,np.zeros((len(getattr(self,self.diagnosticsCoordDict[var][1])),\
+                    len(getattr(self,self.diagnosticsCoordDict[var][2])))))
+                # create array to save MEAN data in. Initialise with zeros. 
+                setattr(self,self.diagnosticsMeanDict[var],[np.zeros((len(getattr(self,self.diagnosticsCoordDict[var][1])),\
                     len(getattr(self,self.diagnosticsCoordDict[var][2]))))])
-                # calculate value from initial conditions and add to array
-                self.diagnosticsFunctsionDict[var](xi=self.xibar_0,psi=self.psibar_0,u=self.ubar_0,v=self.vbar_0)
-                # remove intial zero values
-                setattr(self,var,getattr(self,var)[1:])
+                # create mean variable for summing data. 
+                sum_str = var + '_sum'
+                setattr(self,sum_str, self.diagnosticsFunctsionDict[var](xi=self.xibar_0,psi=self.psibar_0,u=self.ubar_0,v=self.vbar_0))
 
             
             # initialise parameters to store F_n, F_nm1 and F_nm2 to calculate xibar_np1 with AB3
@@ -322,7 +331,6 @@ class Barotropic:
                     # comment out for solid body rotation
                     psibar_np1 = self.LU.solve((-np.array(xibar_np1)).flatten())
                     psibar_np1 = psibar_np1.reshape((self.NyG,self.NxG))
-
                     ubar_np1,vbar_np1 = self.calc_UV(psibar_np1)
 
                     # add to mean data
@@ -330,6 +338,23 @@ class Barotropic:
                     self.psibar_mean = self.psibar_mean + psibar_np1
                     self.ubar_mean = self.ubar_mean + ubar_np1
                     self.vbar_mean = self.vbar_mean + vbar_np1
+
+                    # calculate diagnostics and add to summed data
+                    for var in diags:
+                        # get variable name
+                        np1_str = var + '_np1'
+                        # calculate value at np1
+                        value_np1 = self.diagnosticsFunctsionDict[var](xi=xibar_np1,psi=psibar_np1,u=ubar_np1,v=vbar_np1)
+                        # set value of var_np1 to value caluclated
+                        setattr(self,np1_str,value_np1)
+
+                        # get sum variable name 
+                        sum_str = var + '_sum'
+                        # add previous value to sum
+                        sum_value = getattr(self,sum_str) + value_np1
+                        print(np.shape(sum_value))
+                        # set variable value to new sum
+                        setattr(self,sum_str,sum_value)
 
                     # DUMP XIBAR AND PSIBAR AT CERTAIN INTERVALS
 
@@ -345,7 +370,12 @@ class Barotropic:
 
                         # run diagnostics 
                         for var in diags:
-                            self.diagnosticsFunctsionDict[var](xi=xibar_np1,psi=psibar_np1,u=u_np1,v=v_np1)
+                            #self.diagnosticsFunctsionDict[var](xi=xibar_np1,psi=psibar_np1,u=u_np1,v=v_np1)
+                            # get variable name at np1
+                            np1_str = var + '_np1'
+                            # append np1 value to var data and set the new array to var 
+                            print('10')
+                            setattr(self,var,np.append(getattr(self,var),[getattr(self,np1_str)],axis=0))
 
                     if kw.get('t')%kw.get('meanDumpFreq') == 0:
 
@@ -656,17 +686,24 @@ class Barotropic:
     def diagnosticsDict(self):
 
         self.diagnosticsFunctsionDict = {
-            'xi_uFlux': self.calc_xi_uFlux,
-            'xi_vFlux': self.calc_xi_vFlux,
-            'uSquare': self.calc_uSquare,
-            'vSquare': self.calc_vSquare
+            'xi_u': self.calc_xi_uFlux,
+            'xi_v': self.calc_xi_vFlux,
+            'u_u': self.calc_uSquare,
+            'v_v': self.calc_vSquare
         }
 
         self.diagnosticsCoordDict = {
-            'xi_uFlux': ['T','YG','XG'],
-            'xi_vFlux': ['T','YG','XG'],
-            'uSquare': ['T', 'YC', 'XG'],
-            'vSquare': ['T', 'YG', 'XC']
+            'xi_u': ['T','YG','XG'],
+            'xi_v': ['T','YG','XG'],
+            'u_u': ['T', 'YC', 'XG'],
+            'v_v': ['T', 'YG', 'XC']
+        }
+
+        self.diagnosticsMeanDict = {
+            'xi_u': 'xi_u_MEAN',
+            'xi_v': 'xi_v_MEAN',
+            'u_u': 'u_u_MEAN',
+            'v_v': 'v_v_MEAN'
         }
 
     def calc_xi_uFlux(self,xi,psi,u,v):
@@ -677,7 +714,8 @@ class Barotropic:
         xi_uFlux = xi[1:-1,1:-1]*((u[1:,1:-1] + u[:-1,1:-1])/2)
         xi_uFlux = np.pad(xi_uFlux,((1,1)),constant_values=0)
 
-        self.xi_uFlux = np.append(self.xi_uFlux,[xi_uFlux],axis=0)
+        #self.xi_uFlux = np.append(self.xi_uFlux,[xi_uFlux],axis=0)
+        return xi_uFlux
 
     def calc_xi_vFlux(self,xi,psi,u,v):
 
@@ -698,3 +736,32 @@ class Barotropic:
         self.vSquare = np.append(self.vSquare,[v**2],axis=0)
 
 
+
+# %%
+H = 5000
+h = 500
+dx = 2000
+dy = 2000
+Nx = 500
+Ny = 500
+Lx = dx*Nx 
+Ly = dy*Ny
+
+bathy_mount = [[(H-h*np.sin((np.pi*(i*dx))/Lx)*np.sin((np.pi*(j*dy))/Ly)) for i in range(Nx+1)] for j in range(Ny+1)]
+
+
+Nx = 500
+Ny = 500
+test_diags = Barotropic(d=2000,Nx=Nx,Ny=Ny,bathy=bathy_mount,f0=0.7E-4,beta=2.E-11)
+
+test_diags.gen_init_psi(k_peak=2,const=1E12)
+test_diags.xi_from_psi()
+
+diagnostics = ['xi_u']#,'xi_v','u_u','v_v']
+data = test_diags.model(dt=900,Nt=2,gamma_q=0,r_BD=0,r_diff=2,tau_0=0,rho_0=1000,dumpFreq=86400,meanDumpFreq=864000,diags=diagnostics)
+# %%
+
+print(test_diags.xi_u_sum)
+# %%
+# NOTE: NEED TO CHECK THAT DIAGNOSTICS ARE OUT PUT CORRECTLY EVERY DUMPFREQ AND THEN ADD IN DUMPING OF MEAN DATA. 
+# ALSO CHECK ALL DIAGNOSTICS VARIABLES. 
