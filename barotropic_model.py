@@ -1,5 +1,3 @@
-#%%
-
 import numpy as np
 import pyfftw.interfaces.numpy_fft as fftw
 import matplotlib.pyplot as plt
@@ -9,8 +7,6 @@ import scipy.sparse.linalg as linalg
 import matplotlib.colors as colors
 import scipy.interpolate as interp
 import time
-
-#%%
 
 class Barotropic:
 
@@ -397,6 +393,7 @@ class Barotropic:
 
             # all other time steps with AB3:
             for t in range(3,Nt+1):
+                print('ts = ' + str(t))
                 func_to_run = time_step(scheme=AB3,t=t,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
                 func_to_run()
             
@@ -569,6 +566,8 @@ class Barotropic:
 
     def elliptic(self):
 
+        print('ellip start')
+
         # create coefficient matrices
         h = np.array(self.bathy)
 
@@ -616,6 +615,8 @@ class Barotropic:
 
         LU = linalg.splu(sp.sparse.csc_matrix(diagonal_total))
         self.LU = LU
+        
+        print('ellip end')
 
     def calc_wind_stress(self):
         # calculate the wind stress to be added to F_n
@@ -697,38 +698,3 @@ class Barotropic:
         self.vSquare = np.append(self.vSquare,[v**2],axis=0)
 
 
-
-
-    
-
-# %%
-Nx = 1000
-Ny = 1000
-test_diags = Barotropic(d=1000,Nx=Nx,Ny=Ny,bathy=5000*np.ones((Ny+1,Nx+1)),f0=0.7E-4,beta=2.E-11)
-
-#%%
-test_diags.gen_init_psi(k_peak=2,const=1E12)
-test_diags.xi_from_psi()
-
-X,Y = np.meshgrid(test_diags.XG/1000,test_diags.YG/1000)
-
-plt.contourf(X,Y,test_diags.xibar_0)
-plt.colorbar()
-plt.show()
-
-plt.contour(X,Y,test_diags.psibar_0)
-plt.colorbar()
-plt.show()
-
-
-# %%
-start_time = time.time_ns()
-diagnostics = ['xi_uFlux','xi_vFlux','uSquare','vSquare']
-data = test_diags.model(dt=1800,Nt=4800,gamma_q=0,r_BD=0,r_diff=2,tau_0=0,rho_0=1000,dumpFreq=86400,meanDumpFreq=864000,diags=diagnostics)
-end_time = time.time_ns()
-print('time = ' + str((end_time - start_time)/1E9))
-data.to_netcdf('./model_data/FDT_FLAT_1km_100days')
-
-# %%
-
-# %%
