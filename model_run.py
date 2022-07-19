@@ -1,5 +1,9 @@
+#%%
 import numpy as np
 from barotropic_model import Barotropic
+import time
+
+start_time = time.time_ns()
 
 H = 5000
 h = 500
@@ -21,5 +25,9 @@ test_diags.gen_init_psi(k_peak=2,const=1E12)
 test_diags.xi_from_psi()
 
 diagnostics = ['xi_uFlux','xi_vFlux','uSquare','vSquare']
-data = test_diags.model(dt=200,Nt=10800,gamma_q=0,r_BD=0,r_diff=1,tau_0=0,rho_0=1000,dumpFreq=86400,meanDumpFreq=864000,diags=diagnostics)
-data.to_netcdf('./model_data/FDT_MOUNT_2km_blowUpTest')
+data = test_diags.model(dt=900,Nt=19200,gamma_q=0,r_BD=0,r_diff=2,tau_0=0,rho_0=1000,dumpFreq=86400,meanDumpFreq=864000,diags=diagnostics)
+data.to_netcdf('./model_data/FDT_MOUNT_2km_timeTest_200days')
+end_time = time.time_ns()
+print((start_time - end_time)/1E9)
+
+# %%
