@@ -255,10 +255,10 @@ class Barotropic:
             self.vbar = [self.vbar_0]
 
             # create mean parameters
-            self.xibar_MEAN = self.xibar_0
-            self.psibar_MEAN = self.psibar_0
-            self.ubar_MEAN = self.ubar_0
-            self.vbar_MEAN = self.vbar_0
+            self.xibar_sum = self.xibar_0
+            self.psibar_sum = self.psibar_0
+            self.ubar_sum = self.ubar_0
+            self.vbar_sum = self.vbar_0
             self.xi_MEAN = [np.zeros_like(self.xibar_0)]
             self.psi_MEAN = [np.zeros_like(self.psibar_0)]
             self.u_MEAN = [np.zeros_like(self.ubar_0)]
@@ -349,10 +349,10 @@ class Barotropic:
                     ubar_np1,vbar_np1 = self.calc_UV(psibar_np1)
 
                     # add to mean data
-                    self.xibar_MEAN = self.xibar_MEAN + xibar_np1
-                    self.psibar_MEAN = self.psibar_MEAN + psibar_np1
-                    self.ubar_MEAN = self.ubar_MEAN + ubar_np1
-                    self.vbar_MEAN = self.vbar_MEAN + vbar_np1
+                    self.xibar_sum = self.xibar_sum + xibar_np1
+                    self.psibar_sum = self.psibar_sum + psibar_np1
+                    self.ubar_sum = self.ubar_sum + ubar_np1
+                    self.vbar_sum = self.vbar_sum + vbar_np1
 
                     # calculate diagnostics and add to summed data
                     for var in diags:
@@ -392,16 +392,16 @@ class Barotropic:
                     if kw.get('t')%kw.get('meanDumpFreq') == 0:
 
                         # dump mean data
-                        self.xi_MEAN = np.append(self.xi_MEAN,[(self.xibar_MEAN*self.dt)/self.meanDumpFreq],axis=0)
-                        self.psi_MEAN = np.append(self.psi_MEAN,[(self.psibar_MEAN*self.dt)/self.meanDumpFreq],axis=0)
-                        self.u_MEAN = np.append(self.u_MEAN,[(self.ubar_MEAN*self.dt)/self.meanDumpFreq],axis=0)
-                        self.v_MEAN = np.append(self.v_MEAN,[(self.vbar_MEAN*self.dt)/self.meanDumpFreq],axis=0)
+                        self.xi_MEAN = np.append(self.xi_MEAN,[(self.xibar_sum*self.dt)/self.meanDumpFreq],axis=0)
+                        self.psi_MEAN = np.append(self.psi_MEAN,[(self.psibar_sum*self.dt)/self.meanDumpFreq],axis=0)
+                        self.u_MEAN = np.append(self.u_MEAN,[(self.ubar_sum*self.dt)/self.meanDumpFreq],axis=0)
+                        self.v_MEAN = np.append(self.v_MEAN,[(self.vbar_sum*self.dt)/self.meanDumpFreq],axis=0)
 
-                        # reset mean data to zero
-                        self.xibar_MEAN = np.zeros_like(self.xibar_MEAN)
-                        self.psibar_MEAN = np.zeros_like(self.psibar_MEAN)
-                        self.ubar_MEAN = np.zeros_like(self.ubar_MEAN)
-                        self.vbar_MEAN = np.zeros_like(self.vbar_MEAN)
+                        # reset sum for mean to zero
+                        self.xibar_sum = np.zeros_like(self.xibar_sum)
+                        self.psibar_sum = np.zeros_like(self.psibar_sum)
+                        self.ubar_sum = np.zeros_like(self.ubar_sum)
+                        self.vbar_sum = np.zeros_like(self.vbar_sum)
 
                         # run diagnostics 
                         for var in diags:
@@ -435,11 +435,9 @@ class Barotropic:
                 return xibar_np1
 
             # first two time steps with forward Euler
-            print('ts = 1')
             func_to_run = time_step(scheme=forward_Euler,t=1,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
             func_to_run()
 
-            print('ts = 2')
             func_to_run = time_step(scheme=forward_Euler,t=2,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
             func_to_run()
 
@@ -448,6 +446,7 @@ class Barotropic:
                 print('ts = ' + str(t))
                 func_to_run = time_step(scheme=AB3,t=t,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
                 func_to_run()
+                end_time = time.time_ns()
 
             self.T = np.arange(0,int(self.Nt*self.dt)+1,self.dumpFreq)
             self.T_MEAN = np.arange(1,int((self.Nt*self.dt)/self.meanDumpFreq)+1)
@@ -775,12 +774,12 @@ class Barotropic:
 
 
 # %%
-H = 5000
+'''H = 5000
 h = 500
 dx = 2000
 dy = 2000
-Nx = 100
-Ny = 100
+Nx = 500
+Ny = 500
 Lx = dx*Nx 
 Ly = dy*Ny
 
@@ -788,10 +787,10 @@ bathy_mount = [[(H-h*np.sin((np.pi*(i*dx))/Lx)*np.sin((np.pi*(j*dy))/Ly)) for i 
 
 test_diags = Barotropic(d=2000,Nx=Nx,Ny=Ny,bathy=bathy_mount,f0=0.7E-4,beta=2.E-11)
 
-test_diags.gen_init_psi(k_peak=2,const=1E10)
+test_diags.gen_init_psi(k_peak=2,const=1E12)
 test_diags.xi_from_psi()
 
-X,Y = np.meshgrid(test_diags.XG,test_diags.YG)
+X,Y = np.meshgrid(test_diags.XG/1000,test_diags.YG/1000)
 
 plt.contourf(X,Y,test_diags.xibar_0)
 plt.colorbar()
@@ -801,7 +800,7 @@ plt.contourf(X,Y,test_diags.psibar_0)
 plt.colorbar()
 plt.show()
 
-plt.contourf(test_diags.XG,test_diags.YC,test_diags.ubar_0)
+plt.contourf(test_diags.XG/1000,test_diags.YC/1000,test_diags.ubar_0)
 plt.colorbar()
 plt.show()
 
@@ -838,7 +837,7 @@ for t in range(len(u)):
 for t in range(len(v)):
     xi_v = xi[t,1:-1,1:-1]*((v[t,1:-1,1:] + v[t,1:-1,:-1])/2)
     xi_v = np.pad(xi_v,((1,1)),constant_values=0)
-    print(np.array_equal(xi_v,data.xi_v[t]))
+    print(np.array_equal(xi_v,data.xi_v[t]))'''
 
 
 # %%
