@@ -410,6 +410,8 @@ class Barotropic:
                             # append new mean value to mean variable and reset mean variable to new appended variable
                             setattr(self,self.diagnosticsMeanDict[var],\
                                 np.append(getattr(self,self.diagnosticsMeanDict[var]),[(getattr(self,sum_str)*self.dt)/self.meanDumpFreq],axis=0))
+                            # set sum to zero
+                            setattr(self,sum_str,np.zeros_like(getattr(self,sum_str)))
 
                         
        
