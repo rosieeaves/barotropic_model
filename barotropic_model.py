@@ -728,21 +728,24 @@ class Barotropic:
             'xi_u': self.calc_xi_u,
             'xi_v': self.calc_xi_v,
             'u_u': self.calc_uSquare,
-            'v_v': self.calc_vSquare
+            'v_v': self.calc_vSquare,
+            'xi_xi': self.calc_xiSquare
         }
 
         self.diagnosticsCoordDict = {
             'xi_u': ['T','YG','XG'],
             'xi_v': ['T','YG','XG'],
             'u_u': ['T', 'YC', 'XG'],
-            'v_v': ['T', 'YG', 'XC']
+            'v_v': ['T', 'YG', 'XC'],
+            'xi_xi': ['T', 'YG', 'XG']
         }
 
         self.diagnosticsMeanDict = {
             'xi_u': 'xi_u_MEAN',
             'xi_v': 'xi_v_MEAN',
             'u_u': 'u_u_MEAN',
-            'v_v': 'v_v_MEAN'
+            'v_v': 'v_v_MEAN',
+            'xi_xi': 'xi_xi_MEAN'
         }
 
     def calc_xi_u(self,xi,psi,u,v):
@@ -772,6 +775,10 @@ class Barotropic:
     def calc_vSquare(self,xi,psi,u,v):
 
         return v**2
+
+    def calc_xiSquare(self,xi,psi,u,v):
+
+        return xi**2
 
 
 
