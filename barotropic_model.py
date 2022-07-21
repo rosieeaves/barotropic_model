@@ -62,6 +62,8 @@ class Barotropic:
                 }
             )
 
+            self.bathy_np = np.array(self.bathy)
+
             self.diagnosticsDict()
         
     ##########################################################################
@@ -103,15 +105,17 @@ class Barotropic:
         for i in range(self.Nx+1):
             for j in range(self.Ny+1):
                 stream[j][i] = const*(1-np.cos(np.pi*self.XG[i]/self.Lx)**50)*(1-np.cos(np.pi*self.YG[j]/self.Ly)**50)*psi[j][i]
+
+        self.psibar_0 = stream
         
-        self.psibar_0 = xr.DataArray(
+        '''self.psibar_0 = xr.DataArray(
             stream,
             dims = ['YG','XG'],
             coords = {
                 'YG': self.YG,
                 'XG': self.XG
             }
-        )
+        )'''
 
     def init_psi(self,psi):
         try:
@@ -144,14 +148,15 @@ class Barotropic:
             # set zero on boundaries
             xi_remove = xi[1:-1,1:-1]
             xi_pad = np.pad(xi_remove,((1,1)),constant_values=0)
-            self.xibar_0 = xr.DataArray(
+            self.xibar_0 = xi_pad
+            '''self.xibar_0 = xr.DataArray(
                 xi_pad,
                 dims = ['YG','XG'],
                 coords = {
                     'YG': self.YG,
                     'XG': self.XG
                 }
-            )
+            )'''
 
     def psi_from_xi(self):
         try:
@@ -165,14 +170,16 @@ class Barotropic:
             psibar = self.LU.solve((-np.array(self.xibar_0)).flatten())
             psibar = psibar.reshape((self.NyG,self.NxG))
 
-            self.psibar_0 = xr.DataArray(
+            self.psibar_0 = psibar
+
+            '''self.psibar_0 = xr.DataArray(
                 psibar,
                 dims = ['YG','XG'],
                 coords = {
                     'YG': self.YG,
                     'XG': self.XG
                 }
-            )
+            )'''
 
             ubar_0,vbar_0 = self.calc_UV(self.psibar_0)
             self.ubar_0 = ubar_0
@@ -187,27 +194,30 @@ class Barotropic:
         else:
             #calculate initial xibar from initial psibar
 
-            h = np.array(self.bathy)
-            psi = np.array(self.psibar_0)
+            print(self.psibar_0)
 
-            xibar_0 = (psi[1:-1,2:] + psi[1:-1,:-2] + psi[2:,1:-1] + psi[:-2,1:-1] - 4*psi[1:-1,1:-1])/(h[1:-1,1:-1]*(self.d**2)) - \
-                ((psi[1:-1,2:] - psi[1:-1,:-2])*(h[1:-1,2:] - h[1:-1,:-2]) + \
-                    (psi[2:,1:-1] - psi[:-2,1:-1])*(h[2:,1:-1] - h[:-2,1:-1]))/((h[1:-1,1:-1]**2)*(self.d**2))
+            xibar_0 = (self.psibar_0[1:-1,2:] + self.psibar_0[1:-1,:-2] + \
+                self.psibar_0[2:,1:-1] + self.psibar_0[:-2,1:-1] - 4*self.psibar_0[1:-1,1:-1])/(self.bathy_np[1:-1,1:-1]*(self.d**2)) - \
+                    ((self.psibar_0[1:-1,2:] - self.psibar_0[1:-1,:-2])*(self.bathy_np[1:-1,2:] - self.bathy_np[1:-1,:-2]) + \
+                        (self.psibar_0[2:,1:-1] - self.psibar_0[:-2,1:-1])*\
+                            (self.bathy_np[2:,1:-1] - self.bathy_np[:-2,1:-1]))/((self.bathy_np[1:-1,1:-1]**2)*(self.d**2))
  
             xibar_0 = np.pad(xibar_0,((1,1)),constant_values=0)
 
-            self.xibar_0 = xr.DataArray(
+            self.xibar_0 = xibar_0
+
+            '''self.xibar_0 = xr.DataArray(
                 xibar_0,
                 dims = ['YG','XG'],
                 coords = {
                     'YG': self.YG,
                     'XG': self.XG
                 }
-            )
+            )'''
 
-            ubar_0,vbar_0 = self.calc_UV(self.psibar_0)
-            self.ubar_0 = ubar_0
-            self.vbar_0 = vbar_0
+            self.calc_UV(self.psibar_0)
+            self.ubar_0 = self.ubar_np1
+            self.vbar_0 = self.vbar_np1
 
     ##########################################################################
     # TIME STEPPING FUNCTIONS
@@ -247,6 +257,10 @@ class Barotropic:
             self.psibar_np1 = np.zeros_like(self.psibar_n)
             self.xibar_n = self.xibar_0
             self.xibar_np1 = np.zeros_like(self.xibar_n)
+            self.ubar_n = self.ubar_0
+            self.ubar_np1 = np.zeros_like(self.ubar_n)
+            self.vbar_n = self.vbar_0
+            self.vbar_np1 = np.zeros_like(self.vbar_n)
 
             # create arrays to save the data
             self.xibar = [self.xibar_0]
@@ -279,11 +293,10 @@ class Barotropic:
             for var in diags:
                 # create array to save data in every dumpFreq e.g. self.xi_u. 
                 # Should be added to every dumpFreq seconds.
-                setattr(self,var,[self.diagnosticsFunctsionDict[var](xi=self.xibar_0,psi=self.psibar_0,u=self.ubar_0,v=self.vbar_0)])
+                setattr(self,var,[self.diagnosticsFunctionsDict[var](xi=self.xibar_0,psi=self.psibar_0,u=self.ubar_0,v=self.vbar_0)])
                 # create variable for calculating np1 time step, e.g. self.xi_u_np1. Initialise with zeros. 
                 # Should be updated every timestep.
-                np1_str = var + '_np1'
-                setattr(self,np1_str,np.zeros((len(getattr(self,self.diagnosticsCoordDict[var][1])),\
+                setattr(self,self.diagnosticsNP1Dict[var],np.zeros((len(getattr(self,self.diagnosticsCoordDict[var][1])),\
                     len(getattr(self,self.diagnosticsCoordDict[var][2])))))
                 # create array to save MEAN data in, e.g. self.xi_u_MEAN. Initialise with zeros. 
                 # Should be added to every meanDumpFreq seconds.
@@ -291,14 +304,18 @@ class Barotropic:
                     len(getattr(self,self.diagnosticsCoordDict[var][2]))))])
                 # create mean variable for summing snapshot data for use in calculating mean, e.g. self.xi_u_sum. 
                 # Should be updated every timestep. 
-                sum_str = var + '_sum'
-                setattr(self,sum_str, self.diagnosticsFunctsionDict[var](xi=self.xibar_0,psi=self.psibar_0,u=self.ubar_0,v=self.vbar_0))
+                setattr(self,self.diagnosticsSumDict[var], self.diagnosticsFunctionsDict[var](xi=self.xibar_0,psi=self.psibar_0,u=self.ubar_0,v=self.vbar_0))
 
             
-            # initialise parameters to store F_n, F_nm1 and F_nm2 to calculate xibar_np1 with AB3
+            # initialise parameters for time stepping
             self.F_n = np.zeros_like(self.xibar_n)
             self.F_nm1 = np.zeros_like(self.xibar_n)
             self.F_nm2 = np.zeros_like(self.xibar_n)
+            self.adv_n = np.zeros_like(self.xibar_n)
+            self.BD_n = np.zeros_like(self.xibar_n)
+            self.diff_n = np.zeros_like(self.xibar_n)
+            self.zeta_n = np.zeros_like(self.xibar_n)
+            self.psi_YCXC = np.zeros((self.Ny,self.Nx))
 
             # calculate wind stress
 
@@ -322,72 +339,58 @@ class Barotropic:
                 def wrapper(*args,**kwargs):
 
                     # calculate advection term
-                    adv_n = self.advection(self.xibar_n,self.psibar_n)
+                    self.advection()
 
                     # flux term
 
                     # dissiaption from bottom drag
-                    BD_n = self.r_BD*self.xibar_n
+                    self.BD_n = self.r_BD*self.xibar_n
 
                     # diffusion of vorticity
-                    diff_xi = self.diffusion_xi(self.xibar_n)
-                    diff_n = self.r_diff*diff_xi
+                    self.diffusion_xi()
 
                     # F_n
-                    F_n = -adv_n - BD_n + diff_n + self.wind_stress
+                    self.F_n = -self.adv_n - self.BD_n + self.diff_n + np.array(self.wind_stress)
 
                     # calculate new value of xibar
-                    xibar_np1 = scheme(xibar_n=self.xibar_n,dt=self.dt,F_n=F_n,F_nm1=self.F_nm1,F_nm2=self.F_nm2)
+                    self.xibar_np1 = scheme(xibar_n=self.xibar_n,dt=self.dt,F_n=self.F_n,F_nm1=self.F_nm1,F_nm2=self.F_nm2)
 
                     # uncomment for solid body rotation
                     # psibar_np1 = self.psibar_n
 
                     # SOLVE FOR PSIBAR
                     # comment out for solid body rotation
-                    psibar_np1 = self.LU.solve((-np.array(xibar_np1)).flatten())
-                    psibar_np1 = psibar_np1.reshape((self.NyG,self.NxG))
-                    ubar_np1,vbar_np1 = self.calc_UV(psibar_np1)
+                    self.psibar_np1 = self.LU.solve((-np.array(self.xibar_np1)).flatten())
+                    self.psibar_np1 = self.psibar_np1.reshape((self.NyG,self.NxG))
+                    self.calc_UV(self.psibar_np1)
 
                     # add to mean data
-                    self.xibar_sum = self.xibar_sum + xibar_np1
-                    self.psibar_sum = self.psibar_sum + psibar_np1
-                    self.ubar_sum = self.ubar_sum + ubar_np1
-                    self.vbar_sum = self.vbar_sum + vbar_np1
+                    self.xibar_sum = self.xibar_sum + self.xibar_np1
+                    self.psibar_sum = self.psibar_sum + self.psibar_np1
+                    self.ubar_sum = self.ubar_sum + self.ubar_np1
+                    self.vbar_sum = self.vbar_sum + self.vbar_np1
 
                     # calculate diagnostics and add to summed data
                     for var in diags:
-                        # get variable name for calculating np1 timestep, e.g. self.xi_u_np1.
-                        np1_str = var + '_np1'
-                        # calculate value at np1
-                        value_np1 = self.diagnosticsFunctsionDict[var](xi=xibar_np1,psi=psibar_np1,u=ubar_np1,v=vbar_np1)
-                        # set value of var_np1, e.g. self.xi_u_np1, to value calculated
-                        setattr(self,np1_str,value_np1)
-
-                        # get sum variable name, e.g. self.xi_u_sum
-                        sum_str = var + '_sum'
-                        # add value at np1 timestep to sum
-                        sum_value = getattr(self,sum_str) + value_np1
-                        # set variable value to new sum
-                        setattr(self,sum_str,sum_value)
+                        # set np variable, e.g. self.xi_u_np1, to value at next timestep 
+                        setattr(self,self.diagnosticsNP1Dict[var],\
+                            self.diagnosticsFunctionsDict[var](xi=self.xibar_np1,psi=self.psibar_np1,u=self.ubar_np1,v=self.vbar_np1))
+                        # set sum variable, e.g. self.xi_u_sum, to sum + np1 e.g. self.xi_u_sum + self.xi_u_np1
+                        setattr(self,self.diagnosticsSumDict[var],getattr(self,self.diagnosticsSumDict[var])+getattr(self,self.diagnosticsNP1Dict[var]))
 
                     # DUMP XIBAR AND PSIBAR AT CERTAIN INTERVALS
 
                     if kw.get('t')%kw.get('dumpFreq') == 0:
-                        # calculate u and v from psi
-                        u_np1,v_np1 = self.calc_UV(psibar_np1)
-
                         # save xi, psi, u and v
-                        self.xibar = np.append(self.xibar,[xibar_np1],axis=0)
-                        self.psibar = np.append(self.psibar,[psibar_np1],axis=0)
-                        self.ubar = np.append(self.ubar,[u_np1],axis=0)
-                        self.vbar = np.append(self.vbar,[v_np1],axis=0)
+                        self.xibar = np.append(self.xibar,[self.xibar_np1],axis=0)
+                        self.psibar = np.append(self.psibar,[self.psibar_np1],axis=0)
+                        self.ubar = np.append(self.ubar,[self.ubar_np1],axis=0)
+                        self.vbar = np.append(self.vbar,[self.vbar_np1],axis=0)
 
                         # run diagnostics 
                         for var in diags:
-                            # get variable name at timestep np1, e.g. self.xi_u_np1
-                            np1_str = var + '_np1'
-                            # append np1 value to var data, e.g. self.xi_u, and reset var, e.g. self.xi_u, to appended array
-                            setattr(self,var,np.append(getattr(self,var),[getattr(self,np1_str)],axis=0))
+                            # set snapshot data variable, e.g. self.xi_u, to append(old snapshot data, np1 value), e.g. append self.xi_u with self.xi_u_np1
+                            setattr(self,var,np.append(getattr(self,var),[getattr(self,self.diagnosticsNP1Dict[var])],axis=0))
 
                     if kw.get('t')%kw.get('meanDumpFreq') == 0:
 
@@ -405,13 +408,11 @@ class Barotropic:
 
                         # run diagnostics 
                         for var in diags:
-                            # get variable name for summed data, e.g. self.xi_u_sum
-                            sum_str = var + '_sum'
-                            # append new mean value to mean variable and reset mean variable to new appended variable
+                            # set mean data, e.g. self.xi_u_MEAN, to append(old mean data, new mean data), e.g. append self.xi_u_MEAN with self.xi_u_sum/time
                             setattr(self,self.diagnosticsMeanDict[var],\
-                                np.append(getattr(self,self.diagnosticsMeanDict[var]),[(getattr(self,sum_str)*self.dt)/self.meanDumpFreq],axis=0))
-                            # set sum to zero
-                            setattr(self,sum_str,np.zeros_like(getattr(self,sum_str)))
+                                np.append(getattr(self,self.diagnosticsMeanDict[var]),[(getattr(self,self.diagnosticsSumDict[var])*self.dt)/self.meanDumpFreq],axis=0))
+                            # set sum variable, e.g. self.xi_u_sum, to zero
+                            setattr(self,self.diagnosticsSumDict[var],np.zeros_like(getattr(self,self.diagnosticsSumDict[var])))
 
                         
        
@@ -419,8 +420,8 @@ class Barotropic:
                     self.F_nm2 = self.F_nm1.copy()
                     self.F_nm1 = self.F_n.copy()
                     self.F_n = np.zeros_like(self.F_n)
-                    self.xibar_n = xibar_np1.copy()
-                    self.psibar_n = psibar_np1.copy()
+                    self.xibar_n = self.xibar_np1.copy()
+                    self.psibar_n = self.psibar_np1.copy()
 
                 return wrapper
 
@@ -448,7 +449,6 @@ class Barotropic:
                 print('ts = ' + str(t))
                 func_to_run = time_step(scheme=AB3,t=t,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
                 func_to_run()
-                end_time = time.time_ns()
 
             self.T = np.arange(0,int(self.Nt*self.dt)+1,self.dumpFreq)
             self.T_MEAN = np.arange(1,int((self.Nt*self.dt)/self.meanDumpFreq)+1)
@@ -587,49 +587,40 @@ class Barotropic:
 
     def calc_UV(self,psi):
 
-        h = np.array(self.bathy)
-        psi = np.array(psi)
-
-        v = (2/self.d)*((psi[:,1:] - psi[:,:-1])/(h[:,:-1] + h[:,1:]))
-        u = -(2/self.d)*((psi[1:,:] - psi[:-1,:])/(h[:-1,:] + h[1:,:]))
-
-        return u,v
+        self.vbar_np1 = (2/self.d)*((psi[:,1:] - psi[:,:-1])/(self.bathy_np[:,:-1] + self.bathy_np[:,1:]))
+        self.ubar_np1 = -(2/self.d)*((psi[1:,:] - psi[:-1,:])/(self.bathy_np[:-1,:] + self.bathy_np[1:,:]))
 
 
-    def advection(self,xi,psi):
+    def advection(self):
 
         # calculate absolute velocity
-        zeta = xi + self.f
-        zeta = np.array(zeta)
+        self.zeta_n = np.array(self.xibar_n + self.f)
 
         # interpolate psi onto cell centres
-        psi = np.array(psi)
-        psi_YCXC = (psi[:-1,:-1] + psi[:-1,1:] + psi[1:,:-1] + psi[1:,1:])/4
-
-        # get bathy as np array
-        h = np.array(self.bathy)
+        self.psi_YCXC = (self.psibar_n[:-1,:-1] + self.psibar_n[:-1,1:] + self.psibar_n[1:,:-1] + self.psibar_n[1:,1:])/4
 
         # calculate area average of advection term 
         # area average is take over the grid cell centred at the vorticity point, away from the boundaries
-        adv = (1/(self.d**2))*(((psi_YCXC[1:,1:] - psi_YCXC[1:,:-1])*(zeta[1:-1,1:-1] + zeta[2:,1:-1]))/(h[1:-1,1:-1] + h[2:,1:-1]) - \
-            ((psi_YCXC[1:,1:] - psi_YCXC[:-1,1:])*(zeta[1:-1,1:-1] + zeta[1:-1,2:]))/(h[1:-1,1:-1] + h[1:-1,2:]) - \
-                ((psi_YCXC[:-1,1:] - psi_YCXC[:-1,:-1])*(zeta[1:-1,1:-1] + zeta[:-2,1:-1]))/(h[1:-1,1:-1] + h[:-2,1:-1]) + \
-                    ((psi_YCXC[1:,:-1] - psi_YCXC[:-1,:-1])*(zeta[1:-1,1:-1] + zeta[1:-1,:-2]))/(h[1:-1,1:-1] + h[1:-1,:-2]))
+        self.adv_n = (1/(self.d**2))*(((self.psi_YCXC[1:,1:] - self.psi_YCXC[1:,:-1])*\
+            (self.zeta_n[1:-1,1:-1] + self.zeta_n[2:,1:-1]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[2:,1:-1]) - \
+                ((self.psi_YCXC[1:,1:] - self.psi_YCXC[:-1,1:])*\
+                    (self.zeta_n[1:-1,1:-1] + self.zeta_n[1:-1,2:]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[1:-1,2:]) - \
+                        ((self.psi_YCXC[:-1,1:] - self.psi_YCXC[:-1,:-1])*\
+                            (self.zeta_n[1:-1,1:-1] + self.zeta_n[:-2,1:-1]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[:-2,1:-1]) + \
+                                ((self.psi_YCXC[1:,:-1] - self.psi_YCXC[:-1,:-1])*\
+                                    (self.zeta_n[1:-1,1:-1] + self.zeta_n[1:-1,:-2]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[1:-1,:-2]))
 
         # pad with zero values on boundaries
-        adv = np.pad(adv,((1,1)),constant_values=0)
+        self.adv_n = np.pad(self.adv_n,((1,1)),constant_values=0)
 
-        return adv
+    def diffusion_xi(self): 
 
-    def diffusion_xi(self,xi):
+        self.diff_n = (1/self.d**2)*(self.xibar_n[1:-1,2:] + self.xibar_n[1:-1,:-2] + \
+            self.xibar_n[2:,1:-1] + self.xibar_n[:-2,1:-1] - 4*self.xibar_n[1:-1,1:-1])
 
-        xi = np.array(xi)
+        self.diff_n = np.pad(self.diff_n,((1,1)),constant_values=0)
 
-        diffusion = (1/self.d**2)*(xi[1:-1,2:] + xi[1:-1,:-2] + xi[2:,1:-1] + xi[:-2,1:-1] - 4*xi[1:-1,1:-1])
-
-        diffusion = np.pad(diffusion,((1,1)),constant_values=0)
-
-        return diffusion
+        #return diffusion
 
 
 
@@ -724,7 +715,7 @@ class Barotropic:
 
     def diagnosticsDict(self):
 
-        self.diagnosticsFunctsionDict = {
+        self.diagnosticsFunctionsDict = {
             'xi_u': self.calc_xi_u,
             'xi_v': self.calc_xi_v,
             'u_u': self.calc_uSquare,
@@ -748,10 +739,23 @@ class Barotropic:
             'xi_xi': 'xi_xi_MEAN'
         }
 
-    def calc_xi_u(self,xi,psi,u,v):
+        self.diagnosticsNP1Dict = {
+            'xi_u': 'xi_u_np1',
+            'xi_v': 'xi_v_np1',
+            'u_u': 'u_u_np1',
+            'v_v': 'v_v_np1',
+            'xi_xi': 'xi_xi_np1'
+        }
 
-        xi = np.array(xi)
-        u = np.array(u)
+        self.diagnosticsSumDict = {
+            'xi_u': 'xi_u_sum',
+            'xi_v': 'xi_v_sum',
+            'u_u': 'u_u_sum',
+            'v_v': 'v_v_sum',
+            'xi_xi': 'xi_xi_sum'
+        }
+
+    def calc_xi_u(self,xi,psi,u,v):
 
         xi_u = xi[1:-1,1:-1]*((u[1:,1:-1] + u[:-1,1:-1])/2)
         xi_u = np.pad(xi_u,((1,1)),constant_values=0)
@@ -759,9 +763,6 @@ class Barotropic:
         return xi_u
 
     def calc_xi_v(self,xi,psi,u,v):
-
-        xi = np.array(xi)
-        v = np.array(v)
 
         xi_v = xi[1:-1,1:-1]*((v[1:-1,1:] + v[1:-1,:-1])/2)
         xi_v = np.pad(xi_v,((1,1)),constant_values=0)
@@ -813,6 +814,8 @@ plt.contourf(test_diags.XG/1000,test_diags.YC/1000,test_diags.ubar_0)
 plt.colorbar()
 plt.show()
 
+print(test_diags.xibar_0)
+
 #%%
 
 diagnostics = ['xi_u','xi_v','u_u','v_v']
@@ -846,7 +849,10 @@ for t in range(len(u)):
 for t in range(len(v)):
     xi_v = xi[t,1:-1,1:-1]*((v[t,1:-1,1:] + v[t,1:-1,:-1])/2)
     xi_v = np.pad(xi_v,((1,1)),constant_values=0)
-    print(np.array_equal(xi_v,data.xi_v[t]))'''
+    print(np.array_equal(xi_v,data.xi_v[t]))
 
 
+
+# %%
+print(data.Nx)'''
 # %%
