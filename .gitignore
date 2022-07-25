@@ -2,4 +2,10 @@
 baro_env/
 testing_figs/
 *.ipynb
-.ipynb_checkpoints
+*.ipynb_checkpoints
+baro-venv/
+model_data/
+animations/
+*.html
+testing_figs/
+__pycache__/*
