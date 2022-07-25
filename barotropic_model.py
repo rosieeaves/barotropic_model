@@ -126,18 +126,19 @@ class Barotropic:
             # set zero on boundaries
             psi_remove = psi[1:-1,1:-1]
             psi_pad = np.pad(psi_remove,((1,1)),constant_values=0)
-            self.psibar_0 = xr.DataArray(
+            self.psibar_0 = psi_pad
+            '''self.psibar_0 = xr.DataArray(
                 psi_pad,
                 dims = ['YG','XG'],
                 coords = {
                     'YG': self.YG,
                     'XG': self.XG
                 }
-            )
+            )'''
 
-            ubar_0,vbar_0 = self.calc_UV(self.psibar_0)
-            self.ubar_0 = ubar_0
-            self.vbar_0 = vbar_0
+            self.calc_UV(self.psibar_0)
+            self.ubar_0 = self.ubar_np1
+            self.vbar_0 = self.vbar_np1
 
     def init_xi(self,xi):
         try:
@@ -224,7 +225,7 @@ class Barotropic:
     ##########################################################################
 
 
-    def model(self,dt,Nt,gamma_q,r_BD,r_diff,tau_0,rho_0,dumpFreq,meanDumpFreq,diags):
+    def model(self,dt,Nt,gamma_q,r_BD,r_diff,tau_0,rho_0,dumpFreq,meanDumpFreq,diags=[]):
 
         try:
             self.psibar_0
@@ -356,13 +357,14 @@ class Barotropic:
                     self.xibar_np1 = scheme(xibar_n=self.xibar_n,dt=self.dt,F_n=self.F_n,F_nm1=self.F_nm1,F_nm2=self.F_nm2)
 
                     # uncomment for solid body rotation
-                    # psibar_np1 = self.psibar_n
+                    self.psibar_np1 = self.psibar_n
+                    self.calc_UV(self.psibar_np1)
 
                     # SOLVE FOR PSIBAR
                     # comment out for solid body rotation
-                    self.psibar_np1 = self.LU.solve((-np.array(self.xibar_np1)).flatten())
+                    '''self.psibar_np1 = self.LU.solve((-np.array(self.xibar_np1)).flatten())
                     self.psibar_np1 = self.psibar_np1.reshape((self.NyG,self.NxG))
-                    self.calc_UV(self.psibar_np1)
+                    self.calc_UV(self.psibar_np1)'''
 
                     # add to mean data
                     self.xibar_sum = self.xibar_sum + self.xibar_np1
@@ -381,6 +383,7 @@ class Barotropic:
                     # DUMP XIBAR AND PSIBAR AT CERTAIN INTERVALS
 
                     if kw.get('t')%kw.get('dumpFreq') == 0:
+                        print('dump')
                         # save xi, psi, u and v
                         self.xibar = np.append(self.xibar,[self.xibar_np1],axis=0)
                         self.psibar = np.append(self.psibar,[self.psibar_np1],axis=0)
@@ -618,7 +621,7 @@ class Barotropic:
         self.diff_n = (1/self.d**2)*(self.xibar_n[1:-1,2:] + self.xibar_n[1:-1,:-2] + \
             self.xibar_n[2:,1:-1] + self.xibar_n[:-2,1:-1] - 4*self.xibar_n[1:-1,1:-1])
 
-        self.diff_n = np.pad(self.diff_n,((1,1)),constant_values=0)
+        self.diff_n = (np.pad(self.diff_n,((1,1)),constant_values=0))*self.r_diff
 
         #return diffusion
 
