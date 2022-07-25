@@ -3,3 +3,9 @@ baro_env/
 testing_figs/
 *.ipynb
 .ipynb_checkpoints
+baro-venv/
+model_data/
+*.sh
+*.html
+jupyter_cookie_secret
+*.json
