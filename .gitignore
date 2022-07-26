@@ -2,10 +2,12 @@
 baro_env/
 testing_figs/
 *.ipynb
-*.ipynb_checkpoints
+.ipynb_checkpoints
 baro-venv/
 model_data/
-animations/
+*.sh
 *.html
-testing_figs/
+jupyter_cookie_secret
+*.json
+animations/
 __pycache__/*
