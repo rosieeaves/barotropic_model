@@ -33,10 +33,14 @@ plt.show()
 
 diagnostics = ['xi_u','xi_v','u_u','v_v','xi_xi']
 start_time = time.time_ns()
-data = test_diags.model(dt=900,Nt=10,gamma_q=0,r_BD=0,r_diff=2,tau_0=0,rho_0=1000,dumpFreq=900,meanDumpFreq=9000,diags=diagnostics)
-data.to_netcdf('./model_data/meanTest_2')
+data = test_diags.model(dt=900,Nt=960,gamma_q=0,r_BD=0,r_diff=2,tau_0=0,rho_0=1000,dumpFreq=86400,meanDumpFreq=864000,diags=diagnostics)
+data.to_netcdf('./model_data/dumpTest')
 end_time = time.time_ns()
 print((end_time - start_time)/1E9)
 
+
+# %%
+
+print(np.array_equal(test_diags.bathy,test_diags.bathy_np))
 
 # %%

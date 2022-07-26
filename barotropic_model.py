@@ -357,14 +357,14 @@ class Barotropic:
                     self.xibar_np1 = scheme(xibar_n=self.xibar_n,dt=self.dt,F_n=self.F_n,F_nm1=self.F_nm1,F_nm2=self.F_nm2)
 
                     # uncomment for solid body rotation
-                    self.psibar_np1 = self.psibar_n
-                    self.calc_UV(self.psibar_np1)
+                    # self.psibar_np1 = self.psibar_n
+                    # self.calc_UV(self.psibar_np1)
 
                     # SOLVE FOR PSIBAR
                     # comment out for solid body rotation
-                    '''self.psibar_np1 = self.LU.solve((-np.array(self.xibar_np1)).flatten())
+                    self.psibar_np1 = self.LU.solve((-np.array(self.xibar_np1)).flatten())
                     self.psibar_np1 = self.psibar_np1.reshape((self.NyG,self.NxG))
-                    self.calc_UV(self.psibar_np1)'''
+                    self.calc_UV(self.psibar_np1)
 
                     # add to mean data
                     self.xibar_sum = self.xibar_sum + self.xibar_np1
