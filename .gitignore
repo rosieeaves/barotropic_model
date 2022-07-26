@@ -11,3 +11,4 @@ jupyter_cookie_secret
 *.json
 animations/
 __pycache__/*
+slurm*
