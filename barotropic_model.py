@@ -64,6 +64,10 @@ class Barotropic:
 
             self.bathy_np = np.array(self.bathy)
 
+            self.bathy_YGXG = (self.bathy_np[:-1,:-1] + self.bathy_np[1:,:-1] + \
+                
+                self.bathy_np[:-1,1:] + self.bathy_np[1:,1:])/4
+
             self.diagnosticsDict()
         
     ##########################################################################
@@ -225,7 +229,7 @@ class Barotropic:
     ##########################################################################
 
 
-    def model(self,dt,Nt,gamma_q,r_BD,r_diff,tau_0,rho_0,dumpFreq,meanDumpFreq,diags=[]):
+    def model(self,dt,Nt,gamma_q,r_BD,r_diff,tau_0,rho_0,dumpFreq,meanDumpFreq,diags=[],tracer_init=None):
 
         try:
             self.psibar_0
@@ -332,10 +336,26 @@ class Barotropic:
 
             self.calc_wind_stress()
 
+            # if tracer_init exists
+            if tracer_init.any() != None:
+                # check that it has the correct shape
+                try: 
+                    np.shape(tracer_init) == ((self.Ny,self.Nx))
+                except ValueError:
+                    print('tracer_init must have shape ((Ny,Nx)) to be defined at the cell centre points.')
+                else: 
+                    # create variables for tracer advection
+                    self.tracer = [tracer_init]
+                    self.tracer_n = tracer_init 
+                    self.tracer_np1 = np.zeros_like(self.tracer_n)
+                    self.tracerF_n = np.zeros_like(self.tracer_n)
+                    self.tracerF_nm1 = np.zeros_like(self.tracer_n)
+                    self.tracerF_nm2 = np.zeros_like(self.tracer_n)
+
             # time stepping function
 
             #def time_step(scheme,F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1):
-            def time_step(scheme,**kw):
+            def time_step(scheme_xi,scheme_tracer,**kw):
 
                 def wrapper(*args,**kwargs):
 
@@ -354,7 +374,7 @@ class Barotropic:
                     self.F_n = -self.adv_n - self.BD_n + self.diff_n + np.array(self.wind_stress)
 
                     # calculate new value of xibar
-                    self.xibar_np1 = scheme(xibar_n=self.xibar_n,dt=self.dt,F_n=self.F_n,F_nm1=self.F_nm1,F_nm2=self.F_nm2)
+                    self.xibar_np1 = scheme_xi(var_n=self.xibar_n,dt=self.dt,F_n=self.F_n,F_nm1=self.F_nm1,F_nm2=self.F_nm2)
 
                     # uncomment for solid body rotation
                     # self.psibar_np1 = self.psibar_n
@@ -380,7 +400,16 @@ class Barotropic:
                         # set sum variable, e.g. self.xi_u_sum, to sum + np1 e.g. self.xi_u_sum + self.xi_u_np1
                         setattr(self,self.diagnosticsSumDict[var],getattr(self,self.diagnosticsSumDict[var])+getattr(self,self.diagnosticsNP1Dict[var]))
 
-                    # DUMP XIBAR AND PSIBAR AT CERTAIN INTERVALS
+                    # if tracer_init exists 
+                    if tracer_init.any() != None:
+                        # calculate tracer at time n
+                        self.tracer_advect()
+                        # step forward tracer to calculate at np1
+                        self.tracer_np1 = scheme_tracer(var_n=self.tracer_n,dt=self.dt,F_n=self.tracerF_n,F_nm1=self.tracerF_nm1,F_nm2=self.tracerF_nm2)
+
+
+
+                    # dump data every dumpFreq seconds
 
                     if kw.get('t')%kw.get('dumpFreq') == 0:
                         print('dump')
@@ -394,6 +423,10 @@ class Barotropic:
                         for var in diags:
                             # set snapshot data variable, e.g. self.xi_u, to append(old snapshot data, np1 value), e.g. append self.xi_u with self.xi_u_np1
                             setattr(self,var,np.append(getattr(self,var),[getattr(self,self.diagnosticsNP1Dict[var])],axis=0))
+
+                        # tracer
+                        if tracer_init.any() != None:
+                            self.tracer = np.append(self.tracer,[self.tracer_np1],axis=0)
 
                     if kw.get('t')%kw.get('meanDumpFreq') == 0:
 
@@ -425,6 +458,12 @@ class Barotropic:
                     self.F_n = np.zeros_like(self.F_n)
                     self.xibar_n = self.xibar_np1.copy()
                     self.psibar_n = self.psibar_np1.copy()
+                    if tracer_init.any() != None:
+                        self.tracerF_nm2 = self.tracerF_nm1.copy()
+                        self.tracerF_nm1 = self.tracerF_n.copy()
+                        self.tracerF_n = np.zeros_like(self.tracerF_n)
+                        self.tracer_n = self.tracer_np1.copy()
+                        
 
                 return wrapper
 
@@ -432,25 +471,32 @@ class Barotropic:
             dumpFreqTS = int(self.dumpFreq/self.dt)
             meanDumpFreqTS = int(self.meanDumpFreq/self.dt)
 
-            def forward_Euler(xibar_n,dt,F_n,F_nm1,F_nm2):
-                xibar_np1 = xibar_n + dt*F_n
-                return xibar_np1
+            def forward_Euler(var_n,dt,F_n,F_nm1,F_nm2):
+                var_np1 = var_n + dt*F_n
+                return var_np1
 
-            def AB3(xibar_n,dt,F_n,F_nm1,F_nm2):
-                xibar_np1 = xibar_n + (dt/12)*(23*F_n - 16*F_nm1 + 5*F_nm2)
-                return xibar_np1
+            def AB3(var_n,dt,F_n,F_nm1,F_nm2):
+                var_np1 = var_n + (dt/12)*(23*F_n - 16*F_nm1 + 5*F_nm2)
+                return var_np1
+
+            def AB2(var_n,dt,F_n,F_nm1,F_nm2):
+                var_np1 = var_n + (dt/2)*(3*F_n - F_nm1)
+                return var_np1
+
+            def still(var_n,dt,F_n,F_nm1,F_nm2):
+                return var_n
 
             # first two time steps with forward Euler
-            func_to_run = time_step(scheme=forward_Euler,t=1,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
+            func_to_run = time_step(scheme_xi=forward_Euler,scheme_tracer=still,t=1,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
             func_to_run()
 
-            func_to_run = time_step(scheme=forward_Euler,t=2,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
+            func_to_run = time_step(scheme_xi=forward_Euler,scheme_tracer=still,t=1,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
             func_to_run()
 
             # all other time steps with AB3:
             for t in range(3,Nt+1):
                 print('ts = ' + str(t))
-                func_to_run = time_step(scheme=AB3,t=t,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
+                func_to_run = time_step(scheme_xi=AB3,scheme_tracer=AB3,t=t,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
                 func_to_run()
 
             self.T = np.arange(0,int(self.Nt*self.dt)+1,self.dumpFreq)
@@ -586,6 +632,18 @@ class Barotropic:
                     }
                 )
 
+                # tracer exists then save tracer data to output
+                if tracer_init.any() != None:
+                    dataset_return['tracer'] = xr.DataArray(
+                        self.tracer,
+                        dims = ['T','YC','XC'],
+                        coords = {
+                            'T': self.T,
+                            'YC': self.YC,
+                            'XC': self.XC
+                        }
+                    )
+
             return dataset_return
 
     def calc_UV(self,psi):
@@ -623,7 +681,19 @@ class Barotropic:
 
         self.diff_n = (np.pad(self.diff_n,((1,1)),constant_values=0))*self.r_diff
 
-        #return diffusion
+    
+    def tracer_advect(self):
+
+        tracer_pad = np.pad(self.tracer_n,((1,1)),constant_values=0)
+
+        self.tracerF_n = (-1/(4*self.d))*((self.bathy_np[1:,:-1] + self.bathy_np[1:,1:])*\
+            self.vbar_n[1:,:]*(tracer_pad[1:-1,1:-1] + tracer_pad[2:,1:-1]) + \
+                (self.bathy_np[:-1,1:] + self.bathy_np[1:,1:])*self.ubar_n[:,1:]*\
+                    (tracer_pad[1:-1,1:-1] + tracer_pad[1:-1,2:]) - \
+                        (self.bathy_np[:-1,:-1] + self.bathy_np[:-1,1:])*self.vbar_n[:-1,:]*\
+                            (tracer_pad[1:-1,1:-1] + tracer_pad[:-2,1:-1]) - \
+                                (self.bathy_np[:-1,:-1] + self.bathy_np[1:,:-1])*self.ubar_n[:,:-1]*\
+                                    (tracer_pad[1:-1,1:-1] + tracer_pad[1:-1,:-2]))
 
 
 
@@ -787,7 +857,7 @@ class Barotropic:
 
 
 # %%
-'''H = 5000
+H = 5000
 h = 500
 dx = 2000
 dy = 2000
@@ -820,12 +890,20 @@ plt.show()
 print(test_diags.xibar_0)
 
 #%%
+tracer_init = np.pad(np.ones((100,100)),((200,200)),constant_values=0)
+print(np.shape(tracer_init))
+
+plt.contourf(test_diags.XC/1000,test_diags.YC/1000,tracer_init)
+plt.colorbar()
+plt.show()
+
+#%%
 
 diagnostics = ['xi_u','xi_v','u_u','v_v']
-data = test_diags.model(dt=900,Nt=10,gamma_q=0,r_BD=0,r_diff=2,tau_0=0,rho_0=1000,dumpFreq=1800,meanDumpFreq=1800,diags=diagnostics)
+data = test_diags.model(dt=100,Nt=10,gamma_q=0,r_BD=0,r_diff=2,tau_0=0,rho_0=1000,dumpFreq=100,meanDumpFreq=1000,diags=diagnostics,tracer_init=tracer_init)
 # %%
 
-print(data)
+print(data.tracer)
 # %%
 
 plt.contourf(data.XG/1000,data.YC/1000,data.u[5])
@@ -857,5 +935,15 @@ for t in range(len(v)):
 
 
 # %%
-print(data.Nx)'''
+print(data.Nx)
+# %%
+test_diags.tracer_0 = tracer_init
+
+# %%
+
+# %%
+for t in range(11):
+    plt.contourf(data.XC/1000,data.YC/1000,data.tracer[t])
+    plt.colorbar()
+    plt.show()
 # %%
