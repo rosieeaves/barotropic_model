@@ -128,8 +128,11 @@ class Barotropic:
             print('Initial psi must have shape (Ny+1,Nx+1) to be defined on the grid corners.')
         else:
             # set zero on boundaries
+            print('1')
             psi_remove = psi[1:-1,1:-1]
+            print('1')
             psi_pad = np.pad(psi_remove,((1,1)),constant_values=0)
+            print('3')
             self.psibar_0 = psi_pad
             '''self.psibar_0 = xr.DataArray(
                 psi_pad,
@@ -139,9 +142,11 @@ class Barotropic:
                     'XG': self.XG
                 }
             )'''
-
+            print('4')
             self.calc_UV(self.psibar_0)
+            print('5')
             self.ubar_0 = self.ubar_np1
+            print('6')
             self.vbar_0 = self.vbar_np1
 
     def init_xi(self,xi):
@@ -229,7 +234,7 @@ class Barotropic:
     ##########################################################################
 
 
-    def model(self,dt,Nt,gamma_q,r_BD,r_diff,tau_0,rho_0,dumpFreq,meanDumpFreq,diags=[],tracer_init=None):
+    def model(self,dt,Nt,gamma_q,r_BD,kappa_xi,tau_0,rho_0,dumpFreq,meanDumpFreq,kappa_q,diags=[],tracer_init=None):
 
         try:
             self.psibar_0
@@ -250,12 +255,13 @@ class Barotropic:
             self.Nt = Nt
             self.gamma_q = gamma_q
             self.r_BD = r_BD
-            self.r_diff = r_diff
+            self.kappa_xi = kappa_xi
             self.tau_0 = tau_0 
             self.rho_0 = rho_0
             self.dumpFreq = dumpFreq
             self.meanDumpFreq = meanDumpFreq
             self.T = np.arange(0,int(self.Nt*self.dt)+1,self.dumpFreq)
+            self.kappa_q = kappa_q
 
             # initialise parameters pisbar, zetabar, and grad xibar components
             self.psibar_n = self.psibar_0
@@ -336,81 +342,69 @@ class Barotropic:
 
             self.calc_wind_stress()
 
-            # if tracer_init exists
-            if tracer_init.any() != None:
-                # check that it has the correct shape
-                try: 
-                    np.shape(tracer_init) == ((self.Ny,self.Nx))
-                except ValueError:
-                    print('tracer_init must have shape ((Ny,Nx)) to be defined at the cell centre points.')
-                else: 
-                    # create variables for tracer advection
-                    self.tracer = [tracer_init]
-                    self.tracer_n = tracer_init 
-                    self.tracer_np1 = np.zeros_like(self.tracer_n)
-                    self.tracerF_n = np.zeros_like(self.tracer_n)
-                    self.tracerF_nm1 = np.zeros_like(self.tracer_n)
-                    self.tracerF_nm2 = np.zeros_like(self.tracer_n)
+            self.enstrophy_init = np.array([[np.sin((np.pi*(i*self.dx))/self.Lx)*np.sin((np.pi*(j*self.dy))/self.Ly) for i in range(Nx+1)] for j in range(Ny+1)])
+            self.enstrophy_n = self.enstrophy_init
+            self.enstrophy_np1 = np.zeros_like(self.enstrophy_init)
+            self.enstrophy = [self.enstrophy_init]
+            self.enstrophyF_n = np.zeros_like(self.enstrophy_init)
+            self.enstrophyF_nm1 = np.zeros_like(self.enstrophy_init)
+            self.enstrophyF_nm2 = np.zeros_like(self.enstrophy_init)
+            self.enstrophyAdv_n = np.zeros_like(self.enstrophy_n)
+            self.enstrophyDiff_n = np.zeros_like(self.enstrophy_n)
 
             # time stepping function
 
             #def time_step(scheme,F_nm2, F_nm1, F_n, xibar_n, xibar_np1, psibar_n, psibar_np1):
-            def time_step(scheme_xi,scheme_tracer,**kw):
+            def time_step(scheme,**kw):
 
                 def wrapper(*args,**kwargs):
 
+                    # CALCULATE VORTICITY AT NEXT TIME STEP
                     # calculate advection term
-                    self.advection()
-
-                    # flux term
-
+                    self.advection_xi()
                     # dissiaption from bottom drag
                     self.BD_n = self.r_BD*self.xibar_n
-
                     # diffusion of vorticity
-                    self.diffusion_xi()
-
+                    self.diffusion(var=self.xibar_n,kappa=self.kappa_xi,var_return='xibar_np1')
                     # F_n
                     self.F_n = -self.adv_n - self.BD_n + self.diff_n + np.array(self.wind_stress)
-
                     # calculate new value of xibar
-                    self.xibar_np1 = scheme_xi(var_n=self.xibar_n,dt=self.dt,F_n=self.F_n,F_nm1=self.F_nm1,F_nm2=self.F_nm2)
+                    self.xibar_np1 = scheme(var_n=self.xibar_n,dt=self.dt,F_n=self.F_n,F_nm1=self.F_nm1,F_nm2=self.F_nm2)
 
                     # uncomment for solid body rotation
                     # self.psibar_np1 = self.psibar_n
                     # self.calc_UV(self.psibar_np1)
 
-                    # SOLVE FOR PSIBAR
+                    # SOLVE FOR PSI AT NEXT TIME STEP
                     # comment out for solid body rotation
                     self.psibar_np1 = self.LU.solve((-np.array(self.xibar_np1)).flatten())
                     self.psibar_np1 = self.psibar_np1.reshape((self.NyG,self.NxG))
                     self.calc_UV(self.psibar_np1)
 
-                    # add to mean data
+                    # ADD TO SUM FOR MEAN DATA
                     self.xibar_sum = self.xibar_sum + self.xibar_np1
+                    print(np.shape(self.xibar_sum))
                     self.psibar_sum = self.psibar_sum + self.psibar_np1
                     self.ubar_sum = self.ubar_sum + self.ubar_np1
                     self.vbar_sum = self.vbar_sum + self.vbar_np1
 
-                    # calculate diagnostics and add to summed data
+                    # DIAGNOSTICS
                     for var in diags:
-                        # set np variable, e.g. self.xi_u_np1, to value at next timestep 
+                        # set np1 variable, e.g. self.xi_u_np1, to value at next timestep 
                         setattr(self,self.diagnosticsNP1Dict[var],\
                             self.diagnosticsFunctionsDict[var](xi=self.xibar_np1,psi=self.psibar_np1,u=self.ubar_np1,v=self.vbar_np1))
                         # set sum variable, e.g. self.xi_u_sum, to sum + np1 e.g. self.xi_u_sum + self.xi_u_np1
                         setattr(self,self.diagnosticsSumDict[var],getattr(self,self.diagnosticsSumDict[var])+getattr(self,self.diagnosticsNP1Dict[var]))
 
-                    # if tracer_init exists 
-                    if tracer_init.any() != None:
-                        # calculate tracer at time n
-                        self.tracer_advect()
-                        # step forward tracer to calculate at np1
-                        self.tracer_np1 = scheme_tracer(var_n=self.tracer_n,dt=self.dt,F_n=self.tracerF_n,F_nm1=self.tracerF_nm1,F_nm2=self.tracerF_nm2)
+                    # advect enstrophy
+                    self.enstrophy_advect()
+                    self.diffusion(var=self.enstrophy_n,kappa=self.kappa_q,var_return='enstrophy_np1')
+                    self.enstrophyF_n = (-self.enstrophyAdv_n + self.enstrophyDiff_n)/self.bathy_np
+                    self.enstrophy_np1 = scheme(var_n=self.enstrophy_n,dt=self.dt,F_n=self.enstrophyF_n,F_nm1=self.enstrophyF_nm1,F_nm2=self.enstrophyF_nm2)
 
 
 
-                    # dump data every dumpFreq seconds
-
+                    # DUMP DATA EVERY dumpFreq SECONDS
                     if kw.get('t')%kw.get('dumpFreq') == 0:
                         print('dump')
                         # save xi, psi, u and v
@@ -424,12 +418,10 @@ class Barotropic:
                             # set snapshot data variable, e.g. self.xi_u, to append(old snapshot data, np1 value), e.g. append self.xi_u with self.xi_u_np1
                             setattr(self,var,np.append(getattr(self,var),[getattr(self,self.diagnosticsNP1Dict[var])],axis=0))
 
-                        # tracer
-                        if tracer_init.any() != None:
-                            self.tracer = np.append(self.tracer,[self.tracer_np1],axis=0)
+                        self.enstrophy = np.append(self.enstrophy,[self.enstrophy_np1],axis=0)
 
+                    # DUMP MEAN DATA
                     if kw.get('t')%kw.get('meanDumpFreq') == 0:
-
                         # dump mean data
                         self.xi_MEAN = np.append(self.xi_MEAN,[(self.xibar_sum*self.dt)/self.meanDumpFreq],axis=0)
                         self.psi_MEAN = np.append(self.psi_MEAN,[(self.psibar_sum*self.dt)/self.meanDumpFreq],axis=0)
@@ -458,11 +450,12 @@ class Barotropic:
                     self.F_n = np.zeros_like(self.F_n)
                     self.xibar_n = self.xibar_np1.copy()
                     self.psibar_n = self.psibar_np1.copy()
-                    if tracer_init.any() != None:
-                        self.tracerF_nm2 = self.tracerF_nm1.copy()
-                        self.tracerF_nm1 = self.tracerF_n.copy()
-                        self.tracerF_n = np.zeros_like(self.tracerF_n)
-                        self.tracer_n = self.tracer_np1.copy()
+
+                    self.enstrophyF_nm2 = self.enstrophyF_nm1.copy()
+                    self.enstrophyF_nm1 = self.enstrophyF_n.copy()
+                    self.enstrophyF_n = np.zeros_like(self.enstrophyF_n)
+                    self.enstrophy_n = self.enstrophy_np1.copy()
+                    self.enstrophy_np1 = np.zeros_like(self.enstrophy_np1)
                         
 
                 return wrapper
@@ -479,24 +472,17 @@ class Barotropic:
                 var_np1 = var_n + (dt/12)*(23*F_n - 16*F_nm1 + 5*F_nm2)
                 return var_np1
 
-            def AB2(var_n,dt,F_n,F_nm1,F_nm2):
-                var_np1 = var_n + (dt/2)*(3*F_n - F_nm1)
-                return var_np1
-
-            def still(var_n,dt,F_n,F_nm1,F_nm2):
-                return var_n
-
             # first two time steps with forward Euler
-            func_to_run = time_step(scheme_xi=forward_Euler,scheme_tracer=still,t=1,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
+            func_to_run = time_step(scheme=forward_Euler,t=1,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
             func_to_run()
 
-            func_to_run = time_step(scheme_xi=forward_Euler,scheme_tracer=still,t=1,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
+            func_to_run = time_step(scheme=forward_Euler,t=1,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
             func_to_run()
 
             # all other time steps with AB3:
             for t in range(3,Nt+1):
                 print('ts = ' + str(t))
-                func_to_run = time_step(scheme_xi=AB3,scheme_tracer=AB3,t=t,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
+                func_to_run = time_step(scheme=AB3,t=t,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
                 func_to_run()
 
             self.T = np.arange(0,int(self.Nt*self.dt)+1,self.dumpFreq)
@@ -590,7 +576,7 @@ class Barotropic:
                     Nt = self.Nt,
                     gamma_q = self.gamma_q,
                     r_BD = self.r_BD,
-                    r_diff = self.r_diff,
+                    kappa_q = self.kappa_q,
                     tau_0 = self.tau_0,
                     rho_0 = self.rho_0,
                     dumpFreq = self.dumpFreq,
@@ -633,7 +619,7 @@ class Barotropic:
                 )
 
                 # tracer exists then save tracer data to output
-                if tracer_init.any() != None:
+                if tracer_init != None:
                     dataset_return['tracer'] = xr.DataArray(
                         self.tracer,
                         dims = ['T','YC','XC'],
@@ -644,6 +630,16 @@ class Barotropic:
                         }
                     )
 
+                dataset_return['enstrophy'] = xr.DataArray(
+                    self.enstrophy,
+                    dims = ['T','YG','XG'],
+                    coords = {
+                        'T': self.T,
+                        'YG': self.YG,
+                        'XG': self.XG
+                    }
+                )
+
             return dataset_return
 
     def calc_UV(self,psi):
@@ -652,48 +648,81 @@ class Barotropic:
         self.ubar_np1 = -(2/self.d)*((psi[1:,:] - psi[:-1,:])/(self.bathy_np[:-1,:] + self.bathy_np[1:,:]))
 
 
-    def advection(self):
+    def advection_xi(self):
 
         # calculate absolute velocity
         self.zeta_n = np.array(self.xibar_n + self.f)
 
         # interpolate psi onto cell centres
-        self.psi_YCXC = (self.psibar_n[:-1,:-1] + self.psibar_n[:-1,1:] + self.psibar_n[1:,:-1] + self.psibar_n[1:,1:])/4
+        self.psiYCXC_n = (self.psibar_n[:-1,:-1] + self.psibar_n[:-1,1:] + self.psibar_n[1:,:-1] + self.psibar_n[1:,1:])/4
 
         # calculate area average of advection term 
         # area average is take over the grid cell centred at the vorticity point, away from the boundaries
-        self.adv_n = (1/(self.d**2))*(((self.psi_YCXC[1:,1:] - self.psi_YCXC[1:,:-1])*\
+        self.adv_n = (1/(self.d**2))*(((self.psiYCXC_n[1:,1:] - self.psiYCXC_n[1:,:-1])*\
             (self.zeta_n[1:-1,1:-1] + self.zeta_n[2:,1:-1]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[2:,1:-1]) - \
-                ((self.psi_YCXC[1:,1:] - self.psi_YCXC[:-1,1:])*\
+                ((self.psiYCXC_n[1:,1:] - self.psiYCXC_n[:-1,1:])*\
                     (self.zeta_n[1:-1,1:-1] + self.zeta_n[1:-1,2:]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[1:-1,2:]) - \
-                        ((self.psi_YCXC[:-1,1:] - self.psi_YCXC[:-1,:-1])*\
+                        ((self.psiYCXC_n[:-1,1:] - self.psiYCXC_n[:-1,:-1])*\
                             (self.zeta_n[1:-1,1:-1] + self.zeta_n[:-2,1:-1]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[:-2,1:-1]) + \
-                                ((self.psi_YCXC[1:,:-1] - self.psi_YCXC[:-1,:-1])*\
+                                ((self.psiYCXC_n[1:,:-1] - self.psiYCXC_n[:-1,:-1])*\
                                     (self.zeta_n[1:-1,1:-1] + self.zeta_n[1:-1,:-2]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[1:-1,:-2]))
 
         # pad with zero values on boundaries
         self.adv_n = np.pad(self.adv_n,((1,1)),constant_values=0)
+
+    def advection(self,var):
+
+        # interpolate psi onto cell centres
+        self.psiYCXC_n = (self.psibar_n[:-1,:-1] + self.psibar_n[:-1,1:] + self.psibar_n[1:,:-1] + self.psibar_n[1:,1:])/4
+
+        # calculate area average of advection term 
+        # area average is take over the grid cell centred at the vorticity point, away from the boundaries
+        adv_n = (1/(self.d**2))*(((self.psiYCXC_n[1:,1:] - self.psiYCXC_n[1:,:-1])*\
+            (var[1:-1,1:-1] + var[2:,1:-1]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[2:,1:-1]) - \
+                ((self.psiYCXC_n[1:,1:] - self.psiYCXC_n[:-1,1:])*\
+                    (var[1:-1,1:-1] + var[1:-1,2:]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[1:-1,2:]) - \
+                        ((self.psiYCXC_n[:-1,1:] - self.psiYCXC_n[:-1,:-1])*\
+                            (var[1:-1,1:-1] + var[:-2,1:-1]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[:-2,1:-1]) + \
+                                ((self.psiYCXC_n[1:,:-1] - self.psiYCXC_n[:-1,:-1])*\
+                                    (var[1:-1,1:-1] + var[1:-1,:-2]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[1:-1,:-2]))
+
+        # pad with zero values on boundaries
+        adv_n = np.pad(adv_n,((1,1)),constant_values=0)
+
+        return adv_n
 
     def diffusion_xi(self): 
 
         self.diff_n = (1/self.d**2)*(self.xibar_n[1:-1,2:] + self.xibar_n[1:-1,:-2] + \
             self.xibar_n[2:,1:-1] + self.xibar_n[:-2,1:-1] - 4*self.xibar_n[1:-1,1:-1])
 
-        self.diff_n = (np.pad(self.diff_n,((1,1)),constant_values=0))*self.r_diff
+        self.diff_n = (np.pad(self.diff_n,((1,1)),constant_values=0))*self.kappa_xi
 
-    
-    def tracer_advect(self):
+    def diffusion(self,var,kappa,var_return): 
 
-        tracer_pad = np.pad(self.tracer_n,((1,1)),constant_values=0)
+        diff_n = (1/self.d**2)*(var[1:-1,2:] + var[1:-1,:-2] + \
+            var[2:,1:-1] + var[:-2,1:-1] - 4*var[1:-1,1:-1])
 
-        self.tracerF_n = (-1/(4*self.d))*((self.bathy_np[1:,:-1] + self.bathy_np[1:,1:])*\
-            self.vbar_n[1:,:]*(tracer_pad[1:-1,1:-1] + tracer_pad[2:,1:-1]) + \
-                (self.bathy_np[:-1,1:] + self.bathy_np[1:,1:])*self.ubar_n[:,1:]*\
-                    (tracer_pad[1:-1,1:-1] + tracer_pad[1:-1,2:]) - \
-                        (self.bathy_np[:-1,:-1] + self.bathy_np[:-1,1:])*self.vbar_n[:-1,:]*\
-                            (tracer_pad[1:-1,1:-1] + tracer_pad[:-2,1:-1]) - \
-                                (self.bathy_np[:-1,:-1] + self.bathy_np[1:,:-1])*self.ubar_n[:,:-1]*\
-                                    (tracer_pad[1:-1,1:-1] + tracer_pad[1:-1,:-2]))
+        diff_n = (np.pad(diff_n,((1,1)),constant_values=0))*kappa
+
+        setattr(self,var_return,diff_n)
+
+    def enstrophy_advect(self):
+
+        self.enstrophyAdv_n = (1/(2*self.d**2))*(\
+            (self.enstrophy_n[1:-1,1:-1] + self.enstrophy_n[2:,1:-1])*(self.psiYCXC_n[1:,1:] - self.psiYCXC_n[1:,:-1]) - \
+                (self.enstrophy_n[1:-1,1:-1] + self.enstrophy_n[1:-1,2:])*(self.psiYCXC_n[1:,1:] - self.psiYCXC_n[:-1,1:]) - \
+                    (self.enstrophy_n[1:-1,1:-1] + self.enstrophy_n[:-2,1:-1])*(self.psiYCXC_n[:-1,1:] - self.psiYCXC_n[:-1,:-1]) + \
+                        (self.enstrophy_n[1:-1,1:-1] + self.enstrophy_n[1:-1,:-2])*(self.psiYCXC_n[1:,:-1] - self.psiYCXC_n[:-1,:-1]))
+
+        self.enstrophyAdv_n = np.pad(self.enstrophyAdv_n,((1,1)),constant_values=0)
+
+    def enstrophy_diff(self):
+
+        self.enstrophyDiff_n = (1/self.d**2)*(self.enstrophy_n[1:-1,2:] + self.enstrophy_n[1:-1,:-2] + \
+            self.enstrophy_n[2:,1:-1] + self.enstrophy_n[:-2,1:-1] - 4*self.enstrophy_n[1:-1,1:-1])
+
+        self.enstrophyDiff_n = self.kappa_q*(np.pad(self.enstrophyDiff_n,((1,1)),constant_values=0))
 
 
 
@@ -859,16 +888,16 @@ class Barotropic:
 # %%
 H = 5000
 h = 500
-dx = 2000
-dy = 2000
-Nx = 500
-Ny = 500
+dx = 5000
+dy = 5000
+Nx = 200
+Ny = 200
 Lx = dx*Nx 
 Ly = dy*Ny
 
 bathy_mount = [[(H-h*np.sin((np.pi*(i*dx))/Lx)*np.sin((np.pi*(j*dy))/Ly)) for i in range(Nx+1)] for j in range(Ny+1)]
 
-test_diags = Barotropic(d=2000,Nx=Nx,Ny=Ny,bathy=bathy_mount,f0=0.7E-4,beta=2.E-11)
+test_diags = Barotropic(d=5000,Nx=Nx,Ny=Ny,bathy=bathy_mount,f0=0.7E-4,beta=2.E-11)
 
 test_diags.gen_init_psi(k_peak=2,const=1E12)
 test_diags.xi_from_psi()
@@ -890,20 +919,10 @@ plt.show()
 print(test_diags.xibar_0)
 
 #%%
-tracer_init = np.pad(np.ones((100,100)),((200,200)),constant_values=0)
-print(np.shape(tracer_init))
-
-plt.contourf(test_diags.XC/1000,test_diags.YC/1000,tracer_init)
-plt.colorbar()
-plt.show()
-
-#%%
 
 diagnostics = ['xi_u','xi_v','u_u','v_v']
-data = test_diags.model(dt=100,Nt=10,gamma_q=0,r_BD=0,r_diff=2,tau_0=0,rho_0=1000,dumpFreq=100,meanDumpFreq=1000,diags=diagnostics,tracer_init=tracer_init)
-# %%
+data = test_diags.model(dt=1000,Nt=8640,gamma_q=0,r_BD=0,kappa_xi=5,tau_0=0,rho_0=1000,dumpFreq=86400,meanDumpFreq=864000,kappa_q=1.E3,diags=diagnostics)
 
-print(data.tracer)
 # %%
 
 plt.contourf(data.XG/1000,data.YC/1000,data.u[5])
@@ -933,17 +952,18 @@ for t in range(len(v)):
     print(np.array_equal(xi_v,data.xi_v[t]))
 
 
-
-# %%
-print(data.Nx)
-# %%
-test_diags.tracer_0 = tracer_init
-
 # %%
 
 # %%
-for t in range(11):
-    plt.contourf(data.XC/1000,data.YC/1000,data.tracer[t])
+for t in range(101):
+    plt.contourf(data.XG/1000,data.YG/1000,data.enstrophy[t])
     plt.colorbar()
     plt.show()
+
+
+
+
+# %%
+print(np.min(data.enstrophy))
+
 # %%
