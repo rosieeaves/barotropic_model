@@ -432,9 +432,8 @@ class Barotropic:
 
                     self.alpha_n = (-2*self.gamma_q*np.sqrt(self.Q_n*self.K_n))                
 
-                    self.Q_F_n = -self.alpha_n*self.mod_grad_qbar_n #+ (-self.QAdv_n + self.QDiff_n)/self.bathy_np
-                    self.K_F_n = ((self.bathy_np*self.alpha_n)/self.mod_grad_qbar_n)*\
-                        (self.qbar_dx_n*self.psi_dx_n + self.qbar_dy_n*self.psi_dy_n) #+ (-self.KAdv_n + self.KDiff_n)/self.bathy_np
+                    self.Q_F_n = -self.alpha_n*self.mod_grad_qbar_n  - self.QAdv_n/self.bathy_np + self.QDiff_n
+                    self.K_F_n = (self.alpha_n/self.mod_grad_qbar_n)*(self.qbar_dx_n*self.psi_dx_n + self.qbar_dy_n*self.psi_dy_n)  - self.KAdv_n/self.bathy_np + self.KDiff_n
                     self.K_F_n = np.pad(self.K_F_n[1:-1,1:-1],((1,1)),constant_values=0)
 
                     self.Q_np1 = scheme(var_n=self.Q_n,dt=self.dt,F_n=self.Q_F_n,F_nm1=self.Q_F_nm1,F_nm2=self.Q_F_nm2)
@@ -960,7 +959,7 @@ Ly = dy*Ny
 bathy_mount = [[(H-h*np.sin((np.pi*(i*dx))/Lx)*np.sin((np.pi*(j*dy))/Ly)) for i in range(Nx+1)] for j in range(Ny+1)]
 #bathy_flat = H*np.ones((Ny+1,Nx+1))
 
-test_diags = Barotropic(d=5000,Nx=Nx,Ny=Ny,bathy=bathy_mount,f0=0.7E-4,beta=2.E-11)
+test_diags = Barotropic(d=5000,Nx=Nx,Ny=Ny,bathy=bathy_mount,f0=0.7E-4,beta=0)
 
 test_diags.gen_init_psi(k_peak=2,const=1E12)
 test_diags.xi_from_psi()
@@ -984,9 +983,12 @@ print(test_diags.xibar_0)
 #%%
 start_time = time.time_ns()
 diagnostics = ['xi_u','xi_v','u_u','v_v','xi_xi']
-data = test_diags.model(dt=900,Nt=9600,gamma_q=10**-6,r_BD=0,kappa_xi=5,tau_0=0,rho_0=1000,dumpFreq=86400,meanDumpFreq=864000,kappa_q=1.E6,kappa_KE=1.E3,diags=diagnostics)
+data = test_diags.model(dt=900,Nt=9600,gamma_q=0.001,r_BD=0,kappa_xi=5,tau_0=0,rho_0=1000,dumpFreq=86400,meanDumpFreq=864000,kappa_q=1000,kappa_KE=10,diags=diagnostics)
 end_time = time.time_ns()
 print((end_time - start_time)/1.E9)
+
+#%%
+data.to_netcdf('./model_data/tests/schemeTest_f_PEG-KEC-Adv-Diff_gammaq-0001_kappaq-1000_kappaK-10')
 
 # %%
 
@@ -1084,15 +1086,15 @@ X,Y = np.meshgrid(test_diags.XG/1000,test_diags.YG/1000)
 
 ts = np.arange(100).astype(int)
 
-levels_Q = np.linspace(np.nanquantile(test_diags.Q,0.01),\
-                        np.nanquantile(test_diags.Q,0.99),20)
+levels_Q = np.linspace(np.nanquantile(test_diags.Q,0.02),\
+                        np.nanquantile(test_diags.Q,0.98),20)
 levels_K = np.linspace(np.nanquantile(test_diags.K,0.02),\
-                         np.nanquantile(test_diags.K,0.98),10)
+                         np.nanquantile(test_diags.K,0.98),20)
 
 levels_xi = np.linspace(np.nanquantile(data.xi,0.01),\
                         np.nanquantile(data.xi,0.99),20)
-levels_psi = np.linspace(np.nanquantile(data.psi,0.02),\
-                         np.nanquantile(data.psi,0.98),10)
+levels_psi = np.linspace(np.nanmin(data.psi),\
+                         np.nanmax(data.psi),10)
 
 cbar_psi = fig.colorbar(cm.ScalarMappable(norm=colors.TwoSlopeNorm(vmin=levels_psi[0],vmax=levels_psi[-1],vcenter=0),\
                                           cmap='RdBu'),ax=axs[0])
@@ -1122,23 +1124,22 @@ plt.close()
 # %%
 
 html_data = html.data
-with open('./animations/test_Q_K_both.html', 'w') as f:
+with open('./animations/test_kappaq.html', 'w') as f:
     f.write(html_data)
 
-
 # %%
-plt.contourf(data.XG,data.YG,data.psi[20])
+
+plt.contourf(data.XG,data.YG,test_diags.K[0])
 plt.colorbar()
 plt.show()
-# %%
-plt.contourf(test_diags.XG,test_diags.YG,test_diags.Q[99])
+
+plt.contourf(data.XG,data.YG,test_diags.K[-1])
 plt.colorbar()
 plt.show()
-# %%
-print(np.array_equal(test_diags.Q[1],test_diags.Q[-1]))
 
 # %%
-print(test_diags.Q[1])
+print(np.nanmax(test_diags.K[99]))
+
 # %%
-print(test_diags.Q[99])
+print(np.array_equal(data.K[1],data.K[-1]))
 # %%
