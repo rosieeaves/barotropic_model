@@ -700,45 +700,45 @@ class Barotropic:
                     }
                 )
 
-                dataset_return['Q'] = xr.DataArray(
-                    self.Q,
-                    dims = ['T','YG','XG'],
-                    coords = {
-                        'T': self.T,
-                        'YG': self.YG,
-                        'XG': self.XG
-                    }
-                )
+            dataset_return['Q'] = xr.DataArray(
+                self.Q,
+                dims = ['T','YG','XG'],
+                coords = {
+                    'T': self.T,
+                    'YG': self.YG,
+                    'XG': self.XG
+                }
+            )
 
-                dataset_return['Q_MEAN'] = xr.DataArray(
-                    self.Q_MEAN,
-                    dims = ['T_MEAN','YG','XG'],
-                    coords = {
-                        'T_MEAN': self.T_MEAN,
-                        'YG': self.YG,
-                        'XG': self.XG
-                    }
-                )
+            dataset_return['Q_MEAN'] = xr.DataArray(
+                self.Q_MEAN,
+                dims = ['T_MEAN','YG','XG'],
+                coords = {
+                    'T_MEAN': self.T_MEAN,
+                    'YG': self.YG,
+                    'XG': self.XG
+                }
+            )
 
-                dataset_return['K'] = xr.DataArray(
-                    self.K,
-                    dims = ['T','YG','XG'],
-                    coords = {
-                        'T': self.T,
-                        'YG': self.YG,
-                        'XG': self.XG
-                    }
-                )
+            dataset_return['K'] = xr.DataArray(
+                self.K,
+                dims = ['T','YG','XG'],
+                coords = {
+                    'T': self.T,
+                    'YG': self.YG,
+                    'XG': self.XG
+                }
+            )
 
-                dataset_return['K_MEAN'] = xr.DataArray(
-                    self.K_MEAN,
-                    dims = ['T_MEAN','YG','XG'],
-                    coords = {
-                        'T_MEAN': self.T_MEAN,
-                        'YG': self.YG,
-                        'XG': self.XG
-                    }
-                )
+            dataset_return['K_MEAN'] = xr.DataArray(
+                self.K_MEAN,
+                dims = ['T_MEAN','YG','XG'],
+                coords = {
+                    'T_MEAN': self.T_MEAN,
+                    'YG': self.YG,
+                    'XG': self.XG
+                }
+            )
 
             return dataset_return
 
