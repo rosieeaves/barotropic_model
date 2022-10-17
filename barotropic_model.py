@@ -38,6 +38,8 @@ class Barotropic:
             self.YG = np.array([j*self.dy for j in range(self.Ny+1)])
             self.XC = np.array([(i+0.5)*self.dx for i in range(self.Nx)])
             self.YC = np.array([(j+0.5)*self.dy for j in range(self.Ny)])
+            self.NxC = self.Nx 
+            self.NyC = self.Ny
             self.NxG = self.Nx + 1
             self.NyG = self.Ny + 1
 
@@ -219,7 +221,7 @@ class Barotropic:
     ##########################################################################
 
 
-    def model(self,dt,Nt,gamma_q,r_BD,kappa_xi,tau_0,rho_0,dumpFreq,meanDumpFreq,kappa_q,kappa_KE,diags=[],tracer_init=None):
+    def model(self,dt,Nt,gamma_q,r_BD,kappa_xi,tau_0,rho_0,dumpFreq,meanDumpFreq,kappa_q,kappa_K,mu_K,sigma_K,mu_Q,sigma_Q,diags=[],tracer_init=None):
 
         try:
             self.psibar_0
@@ -247,7 +249,17 @@ class Barotropic:
             self.meanDumpFreq = meanDumpFreq
             self.T = np.arange(0,int(self.Nt*self.dt)+1,self.dumpFreq)
             self.kappa_q = kappa_q
-            self.kappa_KE = kappa_KE
+            self.kappa_K = kappa_K
+            self.mu_Q = mu_Q
+            self.sigma_Q = sigma_Q 
+            self.mu_K = mu_K
+            self.sigma_K = sigma_K
+
+            # if initial u and v do not already exist, calculate them
+            try:
+                self.ubar_0
+            except:
+                self.ubar_0,self.vbar_0 = self.calc_UV(self.psibar_0)
 
             # initialise parameters pisbar, zetabar, and grad xibar components
             self.psibar_n = self.psibar_0
@@ -259,21 +271,30 @@ class Barotropic:
             self.vbar_n = self.vbar_0
             self.vbar_np1 = np.zeros_like(self.vbar_n)
 
+            # calculate length of T and T_MEAN arrays
+            len_T = int((self.Nt*self.dt)/self.dumpFreq)
+            len_T_MEAN = int((self.Nt*self.dt)/self.meanDumpFreq)
+
             # create arrays to save the data
-            self.xibar = [self.xibar_0]
-            self.psibar = [self.psibar_0]
-            self.ubar = [self.ubar_0]
-            self.vbar = [self.vbar_0]
+            # NOTE: len_T+1 so that you can add the value at time = 0 in
+            self.xibar = np.zeros((len_T+1,self.NyG,self.NxG),dtype=object)
+            self.psibar = np.zeros((len_T+1,self.NyG,self.NxG),dtype=object)
+            self.ubar = np.zeros((len_T+1,self.NyC,self.NxG),dtype=object)
+            self.vbar = np.zeros((len_T+1,self.NyG,self.NxC),dtype=object)
+            self.xibar[0] = self.xibar_0
+            self.psibar[0] = self.psibar_0
+            self.ubar[0] = self.ubar_0
+            self.vbar[0] = self.vbar_0
 
             # create mean parameters
             self.xibar_sum = self.xibar_0
             self.psibar_sum = self.psibar_0
             self.ubar_sum = self.ubar_0
             self.vbar_sum = self.vbar_0
-            self.xi_MEAN = [np.zeros_like(self.xibar_0)]
-            self.psi_MEAN = [np.zeros_like(self.psibar_0)]
-            self.u_MEAN = [np.zeros_like(self.ubar_0)]
-            self.v_MEAN = [np.zeros_like(self.vbar_0)]
+            self.xi_MEAN = np.zeros((len_T_MEAN,self.NyG,self.NxG),dtype=object)
+            self.psi_MEAN = np.zeros((len_T_MEAN,self.NyG,self.NxG),dtype=object)
+            self.u_MEAN = np.zeros((len_T_MEAN,self.NyC,self.NxG),dtype=object)
+            self.v_MEAN = np.zeros((len_T_MEAN,self.NyG,self.NxC),dtype=object)
 
             # create diagnostic parameters
             # method for calculating diagnostics e.g. xi_u
@@ -290,19 +311,20 @@ class Barotropic:
             for var in diags:
                 # create array to save data in every dumpFreq e.g. self.xi_u. 
                 # Should be added to every dumpFreq seconds.
-                setattr(self,var,[self.diagnosticsFunctionsDict[var](xi=self.xibar_0,psi=self.psibar_0,u=self.ubar_0,v=self.vbar_0)])
+                num_Y = len(getattr(self,self.diagnosticsCoordDict[var][1]))
+                num_X = len(getattr(self,self.diagnosticsCoordDict[var][2]))
+                setattr(self,var,np.zeros((len_T+1,num_Y,num_X),dtype=object))
+                value_0 = self.diagnosticsFunctionsDict[var](xi=self.xibar_0,psi=self.psibar_0,u=self.ubar_0,v=self.vbar_0)
+                getattr(self,var)[0] = value_0
                 # create variable for calculating np1 time step, e.g. self.xi_u_np1. Initialise with zeros. 
                 # Should be updated every timestep.
-                setattr(self,self.diagnosticsNP1Dict[var],np.zeros((len(getattr(self,self.diagnosticsCoordDict[var][1])),\
-                    len(getattr(self,self.diagnosticsCoordDict[var][2])))))
+                setattr(self,self.diagnosticsNP1Dict[var],np.zeros((num_Y,num_X)))
                 # create array to save MEAN data in, e.g. self.xi_u_MEAN. Initialise with zeros. 
                 # Should be added to every meanDumpFreq seconds.
-                setattr(self,self.diagnosticsMeanDict[var],[np.zeros((len(getattr(self,self.diagnosticsCoordDict[var][1])),\
-                    len(getattr(self,self.diagnosticsCoordDict[var][2]))))])
-                # create mean variable for summing snapshot data for use in calculating mean, e.g. self.xi_u_sum. 
+                setattr(self,self.diagnosticsMeanDict[var],np.zeros((len_T_MEAN,num_Y,num_X),dtype=object))
+                # create variable for summing snapshot data for use in calculating mean, e.g. self.xi_u_sum. 
                 # Should be updated every timestep. 
-                setattr(self,self.diagnosticsSumDict[var], self.diagnosticsFunctionsDict[var](xi=self.xibar_0,psi=self.psibar_0,u=self.ubar_0,v=self.vbar_0))
-
+                setattr(self,self.diagnosticsSumDict[var],value_0)
             
             # initialise parameters for time stepping
             self.F_n = np.zeros_like(self.xibar_n)
@@ -327,37 +349,34 @@ class Barotropic:
             )
 
             self.calc_wind_stress()
-            q_0 = (self.f + self.xibar_0)/self.bathy_np
-            self.Q_0 = q_0**2/2
+
+            # enstrophy variables
+            self.Q_0 = np.pad(np.random.normal(loc=self.mu_Q,scale=self.sigma_Q,size=(self.NyG,self.NxG))[1:-1,1:-1],((1,1)),constant_values=0)
             self.Q_n = self.Q_0
             self.Q_np1 = np.zeros_like(self.Q_0)
-            self.Q = [self.Q_0] 
+            self.Q = np.zeros((len_T+1,self.NyG,self.NxG),dtype=object)
+            self.Q[0] = self.Q_0
             self.Q_F_n = np.zeros_like(self.Q_0)
             self.Q_F_nm1 = np.zeros_like(self.Q_0)
             self.Q_F_nm2 = np.zeros_like(self.Q_0)
             self.Q_sum = self.Q_0
-            self.Q_MEAN = [np.zeros_like(self.Q_n)]
+            self.Q_MEAN = np.zeros((len_T_MEAN,self.NyG,self.NxG),dtype=object)
             self.QAdv_n = np.zeros_like(self.Q_0)
             self.QDiff_n = np.zeros_like(self.Q_0)
 
-            self.u_YGXG_0 = (self.ubar_0[1:,1:-1] + self.ubar_0[:-1,1:-1])/2
-            self.v_YGXG_0 = (self.vbar_0[1:-1,1:] + self.vbar_0[1:-1,:-1])/2
-            # NOTE: here we are setting EKE = 0  at boundaries. IS THIS WHAT WE SHOULD DO?
-            self.u_YGXG_0 = np.pad(self.u_YGXG_0,((1,1)),constant_values=0)
-            self.v_YGXG_0 = np.pad(self.v_YGXG_0,((1,1)),constant_values=0)
-
-            self.K_0 = (self.u_YGXG_0**2 + self.v_YGXG_0**2)/2
+            # energy variables
+            self.K_0 = np.random.normal(loc=self.mu_K,scale=self.sigma_K,size=(self.NyG,self.NxG))
             self.K_n = self.K_0
             self.K_np1 = np.zeros_like(self.K_n)
-            self.K = [self.K_0]
+            self.K = np.zeros((len_T+1,self.NyG,self.NxG),dtype=object)
+            self.K[0] = self.K_0
             self.K_F_n = np.zeros_like(self.K_n)
             self.K_F_nm1 = np.zeros_like(self.K_n)
             self.K_F_nm2 = np.zeros_like(self.K_n)
             self.K_sum = self.K_0
-            self.K_MEAN = [np.zeros_like(self.K_n)]
+            self.K_MEAN = np.zeros((len_T_MEAN,self.NyG,self.NxG),dtype=object)
             self.KAdv_n = np.zeros_like(self.K_n)
             self.KDiff_n = np.zeros_like(self.K_n)
-            #self.EKEDiff_n = np.zeros_like(self.EKE_n)
 
             # variables for parameterization calculation 
             self.qbar_n = np.zeros_like(self.Q_0)
@@ -369,7 +388,6 @@ class Barotropic:
             self.psi_dx_n = np.zeros_like(self.psibar_0)
             self.psi_dy_n = np.zeros_like(self.psibar_0)
 
-            self.alpha = [np.zeros_like(self.Q_0)]
 
             # time stepping function
 
@@ -379,6 +397,7 @@ class Barotropic:
                 def wrapper(*args,**kwargs):
 
                     # CALCULATE VORTICITY AT NEXT TIME STEP
+                    # NOTE: advection_xi must always happen first so that psi_YCXC_n can be calculated and used in other functions
                     # calculate advection term
                     self.advection_xi()
                     # dissiaption from bottom drag
@@ -414,12 +433,13 @@ class Barotropic:
                         # set sum variable, e.g. self.xi_u_sum, to sum + np1 e.g. self.xi_u_sum + self.xi_u_np1
                         setattr(self,self.diagnosticsSumDict[var],getattr(self,self.diagnosticsSumDict[var])+getattr(self,self.diagnosticsNP1Dict[var]))
 
-                    # advect, diffuse and step forward enstrophy
+                    # advect enstrophy and energy
                     self.tracer_advect(var=self.Q_n,var_return='QAdv_n')
                     self.tracer_advect(var=self.K_n,var_return='KAdv_n')
 
+                    # diffuse energy and enstrophy
                     self.diffusion(var=self.Q_n,kappa=self.kappa_q,var_return='QDiff_n')
-                    self.diffusion(var=self.K_n,kappa=self.kappa_KE,var_return='KDiff_n')
+                    self.diffusion(var=self.K_n,kappa=self.kappa_K,var_return='KDiff_n')
 
                     # parameterized terms 
                     self.qbar_n = np.array((self.f + self.xibar_n)/self.bathy_np)
@@ -430,48 +450,52 @@ class Barotropic:
                     self.psi_dx_n = self.dx_YGXG_pad0(var=self.psibar_n)
                     self.psi_dy_n = self.dy_YGXG_pad0(var=self.psibar_n)
 
-                    self.alpha_n = (-2*self.gamma_q*np.sqrt(self.Q_n*self.K_n))                
+                    self.alpha_n = (-2*self.gamma_q*np.sqrt(self.Q_n*self.K_n))    
 
+                    # dQdt and dKdt
                     self.Q_F_n = -self.alpha_n*self.mod_grad_qbar_n  - self.QAdv_n/self.bathy_np + self.QDiff_n
                     self.K_F_n = (self.alpha_n/self.mod_grad_qbar_n)*(self.qbar_dx_n*self.psi_dx_n + self.qbar_dy_n*self.psi_dy_n)  - self.KAdv_n/self.bathy_np + self.KDiff_n
                     self.K_F_n = np.pad(self.K_F_n[1:-1,1:-1],((1,1)),constant_values=0)
-
+                    
+                    # step forward Q and K
                     self.Q_np1 = scheme(var_n=self.Q_n,dt=self.dt,F_n=self.Q_F_n,F_nm1=self.Q_F_nm1,F_nm2=self.Q_F_nm2)
                     self.K_np1 = scheme(var_n=self.K_n,dt=self.dt,F_n=self.K_F_n,F_nm1=self.K_F_nm1,F_nm2=self.K_F_nm2)
+                    # set K = 0 where K is negative
                     self.K_np1 = np.where(self.K_np1 < 0,0,self.K_np1)
 
+                    # add to sum variables
                     self.Q_sum = self.Q_sum + self.Q_np1
                     self.K_sum = self.K_sum + self.K_np1
                     
 
-
-
                     # DUMP DATA EVERY dumpFreq SECONDS
                     if kw.get('t')%kw.get('dumpFreq') == 0:
+                        index = int(kw.get('t')/kw.get('dumpFreq'))
                         # save xi, psi, u and v
-                        self.xibar = np.append(self.xibar,[self.xibar_np1],axis=0)
-                        self.psibar = np.append(self.psibar,[self.psibar_np1],axis=0)
-                        self.ubar = np.append(self.ubar,[self.ubar_np1],axis=0)
-                        self.vbar = np.append(self.vbar,[self.vbar_np1],axis=0)
+                        self.xibar[index] = self.xibar_np1
+                        self.psibar[index] = self.psibar_np1
+                        self.ubar[index] = self.ubar_np1
+                        self.vbar[index] = self.vbar_np1
 
                         # run diagnostics 
                         for var in diags:
                             # set snapshot data variable, e.g. self.xi_u, to append(old snapshot data, np1 value), e.g. append self.xi_u with self.xi_u_np1
-                            setattr(self,var,np.append(getattr(self,var),[getattr(self,self.diagnosticsNP1Dict[var])],axis=0))
+                            getattr(self,var)[index] = getattr(self,self.diagnosticsNP1Dict[var])
 
-                        self.Q = np.append(self.Q,[self.Q_np1],axis=0)
-                        self.K = np.append(self.K,[self.K_np1],axis=0)
-                        self.alpha = np.append(self.alpha,[self.alpha_n],axis=0)
+                        self.Q[index] = self.Q_np1
+                        self.K[index] = self.K_np1
 
                     # DUMP MEAN DATA
                     if kw.get('t')%kw.get('meanDumpFreq') == 0:
+                        index_MEAN = int(kw.get('t')/kw.get('meanDumpFreq')) - 1
+                        print(index_MEAN)
                         # dump mean data
-                        self.xi_MEAN = np.append(self.xi_MEAN,[(self.xibar_sum*self.dt)/self.meanDumpFreq],axis=0)
-                        self.psi_MEAN = np.append(self.psi_MEAN,[(self.psibar_sum*self.dt)/self.meanDumpFreq],axis=0)
-                        self.u_MEAN = np.append(self.u_MEAN,[(self.ubar_sum*self.dt)/self.meanDumpFreq],axis=0)
-                        self.v_MEAN = np.append(self.v_MEAN,[(self.vbar_sum*self.dt)/self.meanDumpFreq],axis=0)
-                        self.Q_MEAN = np.append(self.Q_MEAN,[(self.Q_sum*self.dt)/self.meanDumpFreq],axis=0)
-                        self.K_MEAN = np.append(self.K_MEAN,[(self.K_sum*self.dt)/self.meanDumpFreq],axis=0)
+                        self.xi_MEAN[index_MEAN] = (self.xibar_sum*self.dt)/self.meanDumpFreq
+                        self.psi_MEAN[index_MEAN] = (self.psibar_sum*self.dt)/self.meanDumpFreq
+                        self.u_MEAN[index_MEAN] = (self.ubar_sum*self.dt)/self.meanDumpFreq
+                        self.v_MEAN[index_MEAN] = (self.vbar_sum*self.dt)/self.meanDumpFreq
+                        self.Q_MEAN[index_MEAN] = (self.Q_sum*self.dt)/self.meanDumpFreq
+                        self.K_MEAN[index_MEAN] = (self.K_sum*self.dt)/self.meanDumpFreq
 
                         # reset sum for mean to zero
                         self.xibar_sum = np.zeros_like(self.xibar_sum)
@@ -481,11 +505,11 @@ class Barotropic:
                         self.Q_sum = np.zeros_like(self.Q_sum)
                         self.K_sum = np.zeros_like(self.K_sum)
 
+
                         # run diagnostics 
                         for var in diags:
                             # set mean data, e.g. self.xi_u_MEAN, to append(old mean data, new mean data), e.g. append self.xi_u_MEAN with self.xi_u_sum/time
-                            setattr(self,self.diagnosticsMeanDict[var],\
-                                np.append(getattr(self,self.diagnosticsMeanDict[var]),[(getattr(self,self.diagnosticsSumDict[var])*self.dt)/self.meanDumpFreq],axis=0))
+                            getattr(self,self.diagnosticsMeanDict[var])[index_MEAN] = (getattr(self,self.diagnosticsSumDict[var])*self.dt)/self.meanDumpFreq
                             # set sum variable, e.g. self.xi_u_sum, to zero
                             setattr(self,self.diagnosticsSumDict[var],np.zeros_like(getattr(self,self.diagnosticsSumDict[var])))
 
@@ -553,7 +577,7 @@ class Barotropic:
                         }
                     ),
                     xi_MEAN = xr.DataArray(
-                        self.xi_MEAN[1:,:,:],
+                        self.xi_MEAN,
                         dims = ['T_MEAN','YG','XG'],
                         coords = {
                             'T_MEAN': self.T_MEAN,
@@ -571,7 +595,7 @@ class Barotropic:
                         }
                     ),
                     psi_MEAN = xr.DataArray(
-                        self.psi_MEAN[1:,:,:],
+                        self.psi_MEAN,
                         dims = ['T_MEAN','YG','XG'],
                         coords = {
                             'T_MEAN': self.T_MEAN,
@@ -589,7 +613,7 @@ class Barotropic:
                         }
                     ),
                     u_MEAN = xr.DataArray(
-                        self.u_MEAN[1:,:,:],
+                        self.u_MEAN,
                         dims = ['T_MEAN','YC','XG'],
                         coords = {
                             'T_MEAN': self.T_MEAN,
@@ -607,7 +631,7 @@ class Barotropic:
                         }
                     ),
                     v_MEAN = xr.DataArray(
-                        self.v_MEAN[1:,:,:],
+                        self.v_MEAN,
                         dims = ['T_MEAN','YG','XC'],
                         coords = {
                             'T_MEAN': self.T_MEAN,
@@ -631,6 +655,10 @@ class Barotropic:
                     r_BD = self.r_BD,
                     kappa_xi = self.kappa_xi,
                     kappa_q = self.kappa_q,
+                    mu_Q = self.mu_Q,
+                    sigma_Q = self.sigma_Q,
+                    mu_K = self.mu_K,
+                    sigma_K = self.sigma_K,
                     tau_0 = self.tau_0,
                     rho_0 = self.rho_0,
                     dumpFreq = self.dumpFreq,
@@ -662,7 +690,7 @@ class Barotropic:
                 )
                 # mean data every meanDumpFreq seconds, e.g. self.xi_u_MEAN
                 dataset_return[self.diagnosticsMeanDict[var]] = xr.DataArray(
-                    getattr(self,self.diagnosticsMeanDict[var])[1:,:,:],
+                    getattr(self,self.diagnosticsMeanDict[var]),
                     dims = ['T_MEAN',self.diagnosticsCoordDict[var][1],\
                         self.diagnosticsCoordDict[var][2]],
                     coords = {
@@ -671,18 +699,6 @@ class Barotropic:
                         self.diagnosticsCoordDict[var][2]: getattr(self,self.diagnosticsCoordDict[var][2])
                     }
                 )
-
-                # tracer exists then save tracer data to output
-                if tracer_init != None:
-                    dataset_return['tracer'] = xr.DataArray(
-                        self.tracer,
-                        dims = ['T','YC','XC'],
-                        coords = {
-                            'T': self.T,
-                            'YC': self.YC,
-                            'XC': self.XC
-                        }
-                    )
 
                 dataset_return['Q'] = xr.DataArray(
                     self.Q,
@@ -695,7 +711,7 @@ class Barotropic:
                 )
 
                 dataset_return['Q_MEAN'] = xr.DataArray(
-                    self.Q_MEAN[1:,:,:],
+                    self.Q_MEAN,
                     dims = ['T_MEAN','YG','XG'],
                     coords = {
                         'T_MEAN': self.T_MEAN,
@@ -715,7 +731,7 @@ class Barotropic:
                 )
 
                 dataset_return['K_MEAN'] = xr.DataArray(
-                    self.K_MEAN[1:,:,:],
+                    self.K_MEAN,
                     dims = ['T_MEAN','YG','XG'],
                     coords = {
                         'T_MEAN': self.T_MEAN,
@@ -947,7 +963,7 @@ class Barotropic:
 
 
 # %%
-H = 5000
+'''H = 5000
 h = 500
 dx = 5000
 dy = 5000
@@ -959,9 +975,9 @@ Ly = dy*Ny
 bathy_mount = [[(H-h*np.sin((np.pi*(i*dx))/Lx)*np.sin((np.pi*(j*dy))/Ly)) for i in range(Nx+1)] for j in range(Ny+1)]
 #bathy_flat = H*np.ones((Ny+1,Nx+1))
 
-test_diags = Barotropic(d=5000,Nx=Nx,Ny=Ny,bathy=bathy_mount,f0=0.7E-4,beta=0)
+test_diags = Barotropic(d=dx,Nx=Nx,Ny=Ny,bathy=bathy_mount,f0=0.7E-4,beta=0)
 
-test_diags.gen_init_psi(k_peak=2,const=1E12)
+test_diags.gen_init_psi(k_peak=2,const=1E11)
 test_diags.xi_from_psi()
 
 X,Y = np.meshgrid(test_diags.XG/1000,test_diags.YG/1000)
@@ -980,15 +996,17 @@ plt.show()
 
 print(test_diags.xibar_0)
 
+
 #%%
 start_time = time.time_ns()
 diagnostics = ['xi_u','xi_v','u_u','v_v','xi_xi']
-data = test_diags.model(dt=900,Nt=9600,gamma_q=0.001,r_BD=0,kappa_xi=5,tau_0=0,rho_0=1000,dumpFreq=86400,meanDumpFreq=864000,kappa_q=1000,kappa_KE=10,diags=diagnostics)
+data = test_diags.model(dt=900,Nt=960,gamma_q=0.0001,r_BD=0,kappa_xi=1,tau_0=0,rho_0=1000,dumpFreq=86400,meanDumpFreq=864000,kappa_q=1000,kappa_K=10,mu_K=0,sigma_K=0,mu_Q=0,sigma_Q=0,diags=diagnostics)
 end_time = time.time_ns()
 print((end_time - start_time)/1.E9)
 
+
 #%%
-data.to_netcdf('./model_data/tests/schemeTest_f_PEG-KEC-Adv-Diff_gammaq-0001_kappaq-1000_kappaK-10')
+data.to_netcdf('./model_data/tests/schemeTest_f_PEG-KEC-Adv-Diff_gammaq-00001_kappaq-1000_kappaK-10')
 
 # %%
 
@@ -1042,7 +1060,7 @@ import matplotlib.cm as cm
 plt.rcParams['animation.ffmpeg_path'] = '/Users/eavesr/opt/anaconda3/envs/mitgcm_env/bin/ffmpeg'
 
 # %%
-def plot_animate(t,X,Y,fig,axs,psi,xi,K,Q,psi_levels,xi_levels,K_levels,Q_levels,f,h):
+def plot_animate(t,X,Y,fig,axs,psi,xi,psi_levels,xi_levels,f,h):
     PV = f/h
     axs[0].cla()
     im_psi = axs[0].contour(X,Y,psi[t],cmap='RdBu',levels=psi_levels,extend='both')
@@ -1059,37 +1077,16 @@ def plot_animate(t,X,Y,fig,axs,psi,xi,K,Q,psi_levels,xi_levels,K_levels,Q_levels
     axs[1].title.set_text('xi')
     axs[1].set_aspect(1)
     axs[1].contour(X,Y,PV,colors='grey',linewidths=0.5)
-
-    axs[2].cla()
-    im_psi = axs[2].contourf(X,Y,K[t],cmap='Reds',levels=K_levels,extend='both')
-    axs[2].set_xlabel('x (km)')
-    axs[2].set_ylabel('y (km)')
-    axs[2].title.set_text('K')
-    axs[2].set_aspect(1)
-    axs[2].contour(X,Y,PV,colors='grey',linewidths=0.5)
-    
-    axs[3].cla()
-    im_xi = axs[3].contourf(X,Y,Q[t],cmap='Blues',levels=Q_levels,extend='both')
-    axs[3].set_xlabel('x (km)')
-    axs[3].set_ylabel('y (km)')
-    axs[3].title.set_text('Q')
-    axs[3].set_aspect(1)
-    axs[3].contour(X,Y,PV,colors='grey',linewidths=0.5)
     
     fig.suptitle(str(t) + ' Days')
 # %%
 
-fig,axs = plt.subplots(1,4)
-fig.set_size_inches(20,4)
+fig,axs = plt.subplots(1,2)
+fig.set_size_inches(10,4)
 X,Y = np.meshgrid(test_diags.XG/1000,test_diags.YG/1000)
 
 
 ts = np.arange(100).astype(int)
-
-levels_Q = np.linspace(np.nanquantile(test_diags.Q,0.02),\
-                        np.nanquantile(test_diags.Q,0.98),20)
-levels_K = np.linspace(np.nanquantile(test_diags.K,0.02),\
-                         np.nanquantile(test_diags.K,0.98),20)
 
 levels_xi = np.linspace(np.nanquantile(data.xi,0.01),\
                         np.nanquantile(data.xi,0.99),20)
@@ -1103,18 +1100,12 @@ cbar_xi = fig.colorbar(cm.ScalarMappable(norm=colors.TwoSlopeNorm(vmin=levels_xi
                                          cmap='RdBu'),ax=axs[1])
 cbar_xi.set_label('$\\xi$')
 
-cbar_K = fig.colorbar(cm.ScalarMappable(norm=colors.Normalize(vmin=levels_K[0],vmax=levels_K[-1]),\
-                                          cmap='Reds'),ax=axs[2])
-cbar_K.set_label('K')
-cbar_Q = fig.colorbar(cm.ScalarMappable(norm=colors.Normalize(vmin=levels_Q[0],vmax=levels_Q[-1]),\
-                                         cmap='Blues'),ax=axs[3])
-cbar_Q.set_label('Q')
 
 plt.tight_layout()
 
 animation = FuncAnimation(fig, func=plot_animate, frames=ts, interval=100,fargs=[X,Y,fig,axs,data.psi,\
-                                                                                 data.xi,test_diags.K,test_diags.Q,levels_psi,\
-                                                                                 levels_xi,levels_K,levels_Q,test_diags.f,\
+                                                                                 data.xi,levels_psi,\
+                                                                                 levels_xi,test_diags.f,\
                                                                                 test_diags.bathy],repeat=False)
 
 video = animation.to_html5_video()
@@ -1124,7 +1115,7 @@ plt.close()
 # %%
 
 html_data = html.data
-with open('./animations/test_kappaq.html', 'w') as f:
+with open('./animations/tests/5km_visc_test_lowK_1.html', 'w') as f:
     f.write(html_data)
 
 # %%
@@ -1142,4 +1133,11 @@ print(np.nanmax(test_diags.K[99]))
 
 # %%
 print(np.array_equal(data.K[1],data.K[-1]))
+# %%
+print(np.max(test_diags.diff_n))
+print(np.max(test_diags.diff_n_old))
+
+# %%
+print(test_diags.xibar_n)'''
+
 # %%
