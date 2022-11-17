@@ -399,6 +399,12 @@ class Barotropic:
 
                 self.flux_u_n = np.zeros_like(self.xibar_n)
                 self.flux_v_n = np.zeros_like(self.xibar_n)
+
+                # scheme diagnostics 
+                self.enstrophyGen_n = np.zeros_like(self.Q_0)
+                self.enstrophyGen = np.zeros((len_T+1,self.NyG,self.NxG),dtype=object)
+                self.energyConv_n = np.zeros_like(self.K_0)
+                self.energyConv = np.zeros((len_T+1,self.NyG,self.NxG),dtype=object)
             else:
                 self.Q_0 = np.zeros_like(self.xibar_n)
                 self.Q_n = np.zeros_like(self.xibar_n)
@@ -481,6 +487,8 @@ class Barotropic:
                             self.alpha[index] = self.alpha_n
                             self.qbar_dx[index] = self.qbar_dx_n
                             self.qbar_dy[index] = self.qbar_dy_n
+                            self.enstrophyGen[index] = self.enstrophyGen_n 
+                            self.energyConv[index] = self.energyConv_n
 
                     # DUMP MEAN DATA
                     if kw.get('t')%kw.get('meanDumpFreq') == 0:
@@ -1029,11 +1037,14 @@ class Barotropic:
         self.psi_dx_n = self.dx_YGXG_pad0(var=self.psibar_n)
         self.psi_dy_n = self.dy_YGXG_pad0(var=self.psibar_n)
 
-        self.alpha_n = (-2*self.gamma_q*np.sqrt(self.Q_n*self.K_n))    
+        self.alpha_n = (-2*self.gamma_q*np.sqrt(self.Q_n*self.K_n))   
+
+        self.enstrophyGen_n = self.alpha_n*self.mod_grad_qbar_n 
+        self.energyConv_n = (self.alpha_n/self.mod_grad_qbar_n)*(self.qbar_dx_n*self.psi_dx_n + self.qbar_dy_n*self.psi_dy_n) 
 
         # dQdt and dKdt
-        self.Q_F_n = -self.alpha_n*self.mod_grad_qbar_n 
-        self.K_F_n = (self.alpha_n/self.mod_grad_qbar_n)*(self.qbar_dx_n*self.psi_dx_n + self.qbar_dy_n*self.psi_dy_n)  
+        self.Q_F_n = -self.enstrophyGen_n
+        self.K_F_n = self.energyConv_n 
         self.K_F_n = np.pad(self.K_F_n[1:-1,1:-1],((1,1)),constant_values=0)
         
         # step forward Q and K
@@ -1068,9 +1079,12 @@ class Barotropic:
 
         self.alpha_n = (-2*self.gamma_q*np.sqrt(self.Q_n*self.K_n))    
 
+        self.enstrophyGen_n = self.alpha_n*self.mod_grad_qbar_n 
+        self.energyConv_n = (self.alpha_n/self.mod_grad_qbar_n)*(self.qbar_dx_n*self.psi_dx_n + self.qbar_dy_n*self.psi_dy_n) 
+
         # dQdt and dKdt
-        self.Q_F_n = -self.alpha_n*self.mod_grad_qbar_n  - self.QAdv_n/self.bathy_np + self.QDiff_n
-        self.K_F_n = (self.alpha_n/self.mod_grad_qbar_n)*(self.qbar_dx_n*self.psi_dx_n + self.qbar_dy_n*self.psi_dy_n)  - self.KAdv_n/self.bathy_np + self.KDiff_n
+        self.Q_F_n = -self.enstrophyGen_n  - self.QAdv_n/self.bathy_np + self.QDiff_n
+        self.K_F_n = self.energyConv_n - self.KAdv_n/self.bathy_np + self.KDiff_n
         self.K_F_n = np.pad(self.K_F_n[1:-1,1:-1],((1,1)),constant_values=0)
         
         # step forward Q and K
