@@ -220,10 +220,10 @@ class Barotropic:
 
 
     def model(self,dt,Nt,dumpFreq,meanDumpFreq,\
-        r_BD,kappa_xi_L,kappa_xi_B,\
+        r_BD,mu_xi_L,mu_xi_B,\
             tau_0,rho_0,\
-                eddy_scheme=False,init_K=None,init_Q=None,gamma_q=None,kappa_q_L=None,kappa_q_B=None,kappa_K_L=None,kappa_K_B=None,r_Q=None,\
-                    min_val=None,max_val=None,diags=[]):
+                eddy_scheme=False,init_K=None,init_Q=None,gamma_q=None,mu_q_L=None,mu_q_B=None,mu_K_L=None,mu_K_B=None,r_Q=None,\
+                    min_val=None,max_val=None,kappa_q=None,diags=[]):
 
         try:
             self.psibar_0
@@ -239,13 +239,13 @@ class Barotropic:
             except:
                 self.elliptic()
 
-            if eddy_scheme != False and (init_K.any() == None or init_Q.any() == None):
+            if eddy_scheme != False and eddy_scheme != 'constant' and (init_K.any() == None or init_Q.any() == None):
                 raise ValueError('init_K and init_Q parameter must be specified when using scheme.')
 
-            if eddy_scheme != False and (min_val == None):
+            if eddy_scheme != False and eddy_scheme != 'constant' and (min_val == None):
                 raise ValueError('min_val parameter must be specified when using scheme.')
 
-            if eddy_scheme != False and (max_val == None):
+            if eddy_scheme != False and eddy_scheme != 'constant' and (max_val == None):
                 raise ValueError('max_val parameter must be specified when using scheme.')
 
             if eddy_scheme == 'EGEC' or eddy_scheme == 'EGEC_TEST':
@@ -253,33 +253,37 @@ class Barotropic:
                     raise ValueError('r_Q parameter should be set when using scheme.')
 
             if eddy_scheme == 'EGECAD' or eddy_scheme == 'EGECAD_TEST':
-                if kappa_q_L == None or kappa_q_B == None or kappa_K_L == None or kappa_K_B == None or r_Q == None:
-                    raise ValueError('kappa_q_L, kappa_q_B, kappa_K_L, kappa_K_B and r_Q parameters must be set when using scheme with advection and diffusion.')
+                if mu_q_L == None or mu_q_B == None or mu_K_L == None or mu_K_B == None or r_Q == None:
+                    raise ValueError('mu_q_L, mu_q_B, mu_K_L, mu_K_B and r_Q parameters must be set when using scheme with advection and diffusion.')
                 if np.shape(init_K) != (self.NyC,self.NxC):
                     raise ValueError('init_K should have shape (Ny,Nx) to be defined on the cell centre points.')
                 if np.shape(init_Q) != (self.NyG,self.NxG):
                     raise ValueError('init_Q should have shape (Ny+1,Nx+1) to be defined on the grid points.')
+
+            if eddy_scheme == 'constant' and kappa_q == None:
+                raise ValueError('kappa_q must be specified when using constant scheme version.')
 
             # store model parameters in object
             self.dt = dt
             self.Nt = Nt
             self.gamma_q = gamma_q
             self.r_BD = r_BD
-            self.kappa_xi_L = kappa_xi_L
-            self.kappa_xi_B = kappa_xi_B
+            self.mu_xi_L = mu_xi_L
+            self.mu_xi_B = mu_xi_B
             self.tau_0 = tau_0 
             self.rho_0 = rho_0
             self.dumpFreq = dumpFreq
             self.meanDumpFreq = meanDumpFreq
             self.T = np.arange(0,int(self.Nt*self.dt)+1,self.dumpFreq)
-            self.kappa_q_L = kappa_q_L
-            self.kappa_q_B = kappa_q_B
-            self.kappa_K_L = kappa_K_L
-            self.kappa_K_B = kappa_K_B
+            self.mu_q_L = mu_q_L
+            self.mu_q_B = mu_q_B
+            self.mu_K_L = mu_K_L
+            self.mu_K_B = mu_K_B
             self.r_Q = r_Q
             self.eddy_scheme = eddy_scheme
             self.min_val = min_val
             self.max_val = max_val
+            self.kappa_q = kappa_q
 
             # if initial u and v do not already exist, calculate them
             try:
@@ -459,8 +463,8 @@ class Barotropic:
                     # dissiaption from bottom drag
                     self.BD_n = self.r_BD*self.xibar_n
                     # diffusion of vorticity
-                    self.laplacian(var=self.xibar_n,kappa=self.kappa_xi_L,var_return='diffusion_L_n')
-                    self.biharmonic(var=self.xibar_n,kappa=self.kappa_xi_B,var_return='diffusion_B_n')
+                    self.laplacian(var=self.xibar_n,mu=self.mu_xi_L,var_return='diffusion_L_n')
+                    self.biharmonic(var=self.xibar_n,mu=self.mu_xi_B,var_return='diffusion_B_n')
                     # eddy fluxes
                     self.schemeFunctionsDict['calc_K_Q'](scheme=scheme)
                     self.schemeFunctionsDict['calc_eddyFluxes']()
@@ -508,7 +512,7 @@ class Barotropic:
                             # set snapshot data variable, e.g. self.xi_u, to append(old snapshot data, np1 value), e.g. append self.xi_u with self.xi_u_np1
                             getattr(self,var)[index] = getattr(self,self.diagnosticsNP1Dict[var])
 
-                        if self.eddy_scheme != False:
+                        if self.eddy_scheme != False and eddy_scheme != 'constant':
 
                             self.Q[index] = self.Q_np1
                             self.K[index] = self.K_np1
@@ -536,7 +540,7 @@ class Barotropic:
                         self.ubar_sum = np.zeros_like(self.ubar_sum)
                         self.vbar_sum = np.zeros_like(self.vbar_sum)
 
-                        if self.eddy_scheme != False:
+                        if self.eddy_scheme != False and eddy_scheme != 'constant':
                             self.Q_MEAN[index_MEAN] = (self.Q_sum*self.dt)/self.meanDumpFreq
                             self.K_MEAN[index_MEAN] = (self.K_sum*self.dt)/self.meanDumpFreq
 
@@ -619,8 +623,8 @@ class Barotropic:
                     dt = self.dt,
                     Nt = self.Nt,
                     r_BD = self.r_BD,
-                    kappa_xi_L = self.kappa_xi_L,
-                    kappa_xi_B = self.kappa_xi_B,
+                    mu_xi_L = self.mu_xi_L,
+                    mu_xi_B = self.mu_xi_B,
                     tau_0 = self.tau_0,
                     rho_0 = self.rho_0,
                     dumpFreq = self.dumpFreq,
@@ -636,12 +640,13 @@ class Barotropic:
             )
             dataset_return['eddy_scheme'] = self.eddy_scheme
             if self.eddy_scheme != False:
-                dataset_return['kappa_q_L'] = self.kappa_q_L
-                dataset_return['kappa_q_B'] = self.kappa_q_B
-                dataset_return['kappa_K_L'] = self.kappa_K_L
-                dataset_return['kappa_K_B'] = self.kappa_K_B
+                dataset_return['mu_q_L'] = self.mu_q_L
+                dataset_return['mu_q_B'] = self.mu_q_B
+                dataset_return['mu_K_L'] = self.mu_K_L
+                dataset_return['mu_K_B'] = self.mu_K_B
                 dataset_return['r_Q'] = self.r_Q
                 dataset_return['gamma_q'] = self.gamma_q
+                dataset_return['kappa_q'] = self.kappa_q
 
             dataset_return['bathy'] = self.bathy
             dataset_return['f'] = self.f
@@ -751,7 +756,7 @@ class Barotropic:
                         self.diagnosticsCoordDict[var][2]: getattr(self,self.diagnosticsCoordDict[var][2])
                     }
                 )
-            if self.eddy_scheme != False:
+            if self.eddy_scheme != False and eddy_scheme != 'constant':
 
                 dataset_return['Q'] = xr.DataArray(
                     self.Q.astype('float64'),
@@ -879,13 +884,13 @@ class Barotropic:
                 'calc_xi_diff': self.biharmonic
             }'''
 
-    def laplacian(self,var,kappa,var_return):
-        setattr(self,var_return,self.diffusion(var=var)*kappa)
+    def laplacian(self,var,mu,var_return):
+        setattr(self,var_return,self.diffusion(var=var)*mu)
 
-    def biharmonic(self,var,kappa,var_return):
+    def biharmonic(self,var,mu,var_return):
         laplacian = self.diffusion(var=var)
         biharm = self.diffusion(var=laplacian)
-        setattr(self,var_return,kappa*biharm)
+        setattr(self,var_return,mu*biharm)
 
     def diffusion(self,var): 
         var = np.array(var)
@@ -1152,7 +1157,7 @@ class Barotropic:
 
     def schemeDict(self):
         if self.eddy_scheme != 'EGEC' and self.eddy_scheme != 'EGEC_TEST' and self.eddy_scheme != 'EGECAD' and self.eddy_scheme != 'EGECAD_TEST' \
-            and self.eddy_scheme != 'Constant' and self.eddy_scheme != False:
+            and self.eddy_scheme != 'constant' and self.eddy_scheme != False:
             raise ValueError('scheme parameter should be set to \'EGEC\', \'EGECAD\' or False.')
 
         if self.eddy_scheme == 'EGEC':
@@ -1179,11 +1184,11 @@ class Barotropic:
                 'calc_K_Q': self.K_Q_EGECAD,
                 'calc_eddyFluxes': self.noEddyFluxes
             }
-        elif self.eddy_scheme == 'Constant':
-            print('Constant value of K and Q used (i.e. their initial values).')
+        elif self.eddy_scheme == 'constant':
+            print('Scheme with constant value of kappa_q.')
             self.schemeFunctionsDict = {
-                'calc_K_Q': self.K_Q_constant, 
-                'calc_eddyFluxes': self.eddyFluxes_scheme
+                'calc_K_Q': self.no_K_Q,
+                'calc_eddyFluxes': self.eddyFluxes_constant
             }
         else:
             print('No scheme.')
@@ -1258,14 +1263,14 @@ class Barotropic:
         self.K_advection(K=self.K_n)
 
         # diffuse enstrophy
-        self.laplacian(var=self.Q_n,kappa=self.kappa_q_L,var_return='QDiff_L_n')
-        self.biharmonic(var=self.Q_n,kappa=self.kappa_q_B,var_return='QDiff_B_n')
+        self.laplacian(var=self.Q_n,mu=self.mu_q_L,var_return='QDiff_L_n')
+        self.biharmonic(var=self.Q_n,mu=self.mu_q_B,var_return='QDiff_B_n')
 
         # diffuse energy
         self.K_n_ghost = np.pad(self.K_n,((1,1)),mode='edge')
-        self.laplacian(var=self.K_n_ghost,kappa=self.kappa_K_L,var_return='KDiff_L_n')
+        self.laplacian(var=self.K_n_ghost,mu=self.mu_K_L,var_return='KDiff_L_n')
         self.KDiff_L_n = self.KDiff_L_n[1:-1,1:-1]
-        #self.biharmonic(var=self.K_n,kappa=self.kappa_K_B,var_return='KDiff_B_n')
+        #self.biharmonic(var=self.K_n,mu=self.mu_K_B,var_return='KDiff_B_n')
 
         # dQdt and dKdt
         self.Q_F_n = -self.enstrophyGen_n  - self.QAdv_n/self.bathy_np + self.QDiff_L_n - self.QDiff_B_n - self.Q_n*self.r_Q
@@ -1285,19 +1290,8 @@ class Barotropic:
         self.K_np1 = np.zeros_like(self.K_n) 
         self.Q_np1 = np.zeros_like(self.Q_n) 
 
-    def K_Q_constant(self,scheme):
-        self.K_np1 = self.K_n 
-        self.Q_np1 = self.Q_n
-
-        self.qbar_n = np.array((self.f + self.xibar_n)/self.bathy_np)
-        self.qbar_dx_n = self.dx_YGXG_pad0(var=self.qbar_n)
-        self.qbar_dy_n = self.dy_YGXG_pad0(var=self.qbar_n)
-        self.mod_grad_qbar_n = np.sqrt(self.qbar_dx_n**2 + self.qbar_dy_n**2)
-        self.mod_grad_qbar_n = np.where(self.mod_grad_qbar_n < 1.E-18, np.ones_like(self.mod_grad_qbar_n)*1.E-18, self.mod_grad_qbar_n)
-
-        self.alpha_n = (-2*self.gamma_q*np.sqrt(self.Q_n*self.K_n)) 
-
     def eddyFluxes_scheme(self):
+        # ZETA fluxes
         self.flux_u_n = np.array((-self.alpha_n*self.bathy_np*self.qbar_dx_n))
         self.flux_v_n = np.array((-self.alpha_n*self.bathy_np*self.qbar_dy_n))
 
@@ -1306,6 +1300,18 @@ class Barotropic:
 
     def noEddyFluxes(self):
         self.eddyFluxes_n = np.zeros_like(self.xibar_n)
+
+    def eddyFluxes_constant(self):
+        self.qbar_n = np.array((self.f + self.xibar_n)/self.bathy_np)
+        self.qbar_dx_n = self.dx_YGXG(var=self.qbar_n)
+        self.qbar_dy_n = self.dy_YGXG(var=self.qbar_n)
+
+        # ZETA fluxes
+        self.flux_u_n = -self.kappa_q*self.bathy_np*self.qbar_dx_n
+        self.flux_v_n = -self.kappa_q*self.bathy_np*self.qbar_dy_n
+
+        self.eddyFluxes_n = (1/(2*self.d))*(self.flux_v_n[2:,1:-1] - self.flux_v_n[:-2,1:-1] + self.flux_u_n[1:-1,2:] - self.flux_u_n[1:-1,:-2])
+        self.eddyFluxes_n = np.pad(self.eddyFluxes_n,((1,1)),constant_values=0)
 
 
 
