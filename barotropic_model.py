@@ -1,3 +1,7 @@
+<<<<<<< HEAD
+=======
+
+>>>>>>> 4115cb5202ec6818746491ee6b4a0b49c06f3ec4
 import numpy as np
 import pyfftw.interfaces.numpy_fft as fftw
 import matplotlib.pyplot as plt
@@ -1158,6 +1162,7 @@ class Barotropic:
     def calc_xiSquare(self,xi,psi,u,v,var_return):
 
         setattr(self,var_return,xi**2)
+<<<<<<< HEAD
 
     ##########################################################################
     # PARAMETERIZATION
@@ -1321,79 +1326,213 @@ class Barotropic:
         self.eddyFluxes_n = (1/(2*self.d))*(self.flux_v_n[2:,1:-1] - self.flux_v_n[:-2,1:-1] + self.flux_u_n[1:-1,2:] - self.flux_u_n[1:-1,:-2])
         self.eddyFluxes_n = np.pad(self.eddyFluxes_n,((1,1)),constant_values=0)
 
+=======
+
+    ##########################################################################
+    # PARAMETERIZATION
+    ##########################################################################
+
+    def schemeDict(self):
+        if self.eddy_scheme != 'EGEC' and self.eddy_scheme != 'EGEC_TEST' and self.eddy_scheme != 'EGECAD' and self.eddy_scheme != 'EGECAD_TEST' \
+            and self.eddy_scheme != 'constant' and self.eddy_scheme != False:
+            raise ValueError('scheme parameter should be set to \'EGEC\', \'EGECAD\' or False.')
+
+        if self.eddy_scheme == 'EGEC':
+            print('Energy conversion and enstrophy generation only. Calculates eddy fluxes.')
+            self.schemeFunctionsDict = {
+                'calc_K_Q': self.K_Q_EGEC,
+                'calc_eddyFluxes': self.eddyFluxes_scheme
+            }
+        elif self.eddy_scheme == 'EGEC_TEST':
+            print('Energy conversion and enstrophy generation only. Doesn\'t calculate eddy fluxes.')
+            self.schemeFunctionsDict = {
+                'calc_K_Q': self.K_Q_EGEC,
+                'calc_eddyFluxes': self.noEddyFluxes
+            }
+        elif self.eddy_scheme == 'EGECAD':
+            print('Full scheme with advection and diffusion. Calculates eddy fluxes.')
+            self.schemeFunctionsDict = {
+                'calc_K_Q': self.K_Q_EGECAD,
+                'calc_eddyFluxes': self.eddyFluxes_scheme
+            }
+        elif self.eddy_scheme == 'EGECAD_TEST':
+            print('Full scheme with advection and diffusion. Doesn\'t calculate eddy fluxes.')
+            self.schemeFunctionsDict = {
+                'calc_K_Q': self.K_Q_EGECAD,
+                'calc_eddyFluxes': self.noEddyFluxes
+            }
+        elif self.eddy_scheme == 'constant':
+            print('Scheme with constant value of kappa_q.')
+            self.schemeFunctionsDict = {
+                'calc_K_Q': self.no_K_Q,
+                'calc_eddyFluxes': self.eddyFluxes_constant
+            }
+        else:
+            print('No scheme.')
+            self.schemeFunctionsDict = {
+                'calc_K_Q': self.no_K_Q,
+                'calc_eddyFluxes': self.noEddyFluxes
+            }
+
+    def K_advection(self,K):
+
+        K_pad = np.pad(K,((1,1)),constant_values=0)
+        h_pad = np.pad(self.bathy_np,((1,1)),constant_values=0)
+
+        K_adv = (1/(4*self.d*(h_pad[1:-2,1:-2] + h_pad[2:-1,1:-2] + h_pad[1:-2,2:-1] + h_pad[2:-1,2:-1])))*\
+            ((h_pad[2:-1,1:-2] + h_pad[2:-1,2:-1])*(K_pad[1:-1,1:-1] + K_pad[2:,1:-1])*self.vbar_n[1:,:] + \
+                ((h_pad[2:-1,2:-1] + h_pad[1:-2,2:-1])*(K_pad[1:-1,1:-1] + K_pad[1:-1,2:])*self.ubar_n[:,1:]) - \
+                    ((h_pad[1:-2,1:-2] + h_pad[1:-2,2:-1])*(K_pad[1:-1,1:-1] + K_pad[:-2,1:-1])*self.vbar_n[:-1,:]) - \
+                        ((h_pad[1:-2,1:-2] + h_pad[2:-1,1:-2])*(K_pad[1:-1,1:-1] + K_pad[1:-1,:-2])*self.ubar_n[:,:-1]))
+
+        self.KAdv_n = K_adv
+
+    def EGEC(self): 
+
+        self.K_n_YGXG = (self.K_n[1:,1:] + self.K_n[:-1,1:] + self.K_n[1:,:-1] + self.K_n[:-1,:-1])/4
+        self.K_n_YGXG = np.pad(self.K_n_YGXG,((1,1)),constant_values=0)
+
+        # NOTE: we use the values at time step n here to calculate dQ/dt_n and dK/dt_n so that we can claculate Q_np1 and K_np1
+        # parameterized terms 
+        self.qbar_n = np.array((self.f + self.xibar_n)/self.bathy_np)
+        self.qbar_dx_n = self.dx_YGXG(var=self.qbar_n)
+        self.qbar_dy_n = self.dy_YGXG(var=self.qbar_n)
+        self.psi_dx_n = self.dx_YGXG(var=self.psibar_n)
+        self.psi_dy_n = self.dy_YGXG(var=self.psibar_n)
+
+        self.mod_grad_qbar_n = np.sqrt(self.qbar_dx_n**2 + self.qbar_dy_n**2)
+        # set minimum value on mod_grad_qbar
+        self.mod_grad_qbar_n = np.where(self.mod_grad_qbar_n < self.min_val, self.min_val*np.ones_like(self.mod_grad_qbar_n), self.mod_grad_qbar_n)
+
+        self.alpha_n = (2*self.gamma_q*np.sqrt(self.Q_n*self.K_n_YGXG))/self.mod_grad_qbar_n   
+        # set maximum value on alpha_n
+        self.alpha_n = np.where(self.alpha_n > self.max_val, self.max_val*np.ones_like(self.alpha_n),self.alpha_n)
+
+        self.enstrophyGen_n = -self.alpha_n*(self.qbar_dx_n**2 + self.qbar_dy_n**2)
+        self.energyConv_n = -self.alpha_n*(self.qbar_dx_n*self.psi_dx_n + self.qbar_dy_n*self.psi_dy_n) 
+        self.energyConv_n_YCXC = (np.array(self.energyConv_n)[1:,1:] + np.array(self.energyConv_n)[1:,:-1] + \
+            np.array(self.energyConv_n)[:-1,1:] + np.array(self.energyConv_n)[:-1,:-1])/4
+
+    def K_Q_EGEC(self,scheme):
+
+        self.EGEC()
+        
+        # dQdt and dKdt
+        self.Q_F_n = -self.enstrophyGen_n - self.Q_n*self.r_Q
+        self.K_F_n = self.energyConv_n_YCXC
+        
+        # step forward Q and K
+        self.Q_np1 = scheme(var_n=self.Q_n,dt=self.dt,F_n=self.Q_F_n,F_nm1=self.Q_F_nm1,F_nm2=self.Q_F_nm2)
+        self.K_np1 = scheme(var_n=self.K_n,dt=self.dt,F_n=self.K_F_n,F_nm1=self.K_F_nm1,F_nm2=self.K_F_nm2)
+        # set K = 0 where K is negative
+        self.K_np1 = np.where(self.K_np1 < 0,0,self.K_np1)
+
+        # add to sum variables
+        self.Q_sum = self.Q_sum + self.Q_np1
+        self.K_sum = self.K_sum + self.K_np1
+
+    def K_Q_EGECAD(self,scheme):
+        
+        self.EGEC()
+
+        # advect enstrophy and energy
+        self.tracer_advect(var=self.Q_n,var_return='QAdv_n')
+        self.K_advection(K=self.K_n)
+
+        # diffuse enstrophy
+        self.laplacian(var=self.Q_n,mu=self.mu_q_L,var_return='QDiff_L_n')
+        self.biharmonic(var=self.Q_n,mu=self.mu_q_B,var_return='QDiff_B_n')
+
+        # diffuse energy
+        self.K_n_ghost = np.pad(self.K_n,((1,1)),mode='edge')
+        self.laplacian(var=self.K_n_ghost,mu=self.mu_K_L,var_return='KDiff_L_n')
+        self.KDiff_L_n = self.KDiff_L_n[1:-1,1:-1]
+        #self.biharmonic(var=self.K_n,mu=self.mu_K_B,var_return='KDiff_B_n')
+
+        # dQdt and dKdt
+        self.Q_F_n = -self.enstrophyGen_n  - self.QAdv_n/self.bathy_np + self.QDiff_L_n - self.QDiff_B_n - self.Q_n*self.r_Q
+        self.K_F_n = self.energyConv_n_YCXC - self.KAdv_n/self.bathy_YCXC + self.KDiff_L_n #- self.KDiff_B_n
+        
+        # step forward Q and K
+        self.Q_np1 = scheme(var_n=self.Q_n,dt=self.dt,F_n=self.Q_F_n,F_nm1=self.Q_F_nm1,F_nm2=self.Q_F_nm2)
+        self.K_np1 = scheme(var_n=self.K_n,dt=self.dt,F_n=self.K_F_n,F_nm1=self.K_F_nm1,F_nm2=self.K_F_nm2)
+        # set K = 0 where K is negative
+        self.K_np1 = np.where(self.K_np1 < 0,0,self.K_np1)
+
+        # add to sum variables
+        self.Q_sum = self.Q_sum + self.Q_np1
+        self.K_sum = self.K_sum + self.K_np1
+
+    def no_K_Q(self,scheme):
+        self.K_np1 = np.zeros_like(self.K_n) 
+        self.Q_np1 = np.zeros_like(self.Q_n) 
+
+    def eddyFluxes_scheme(self):
+        # ZETA fluxes
+        self.flux_u_n = np.array((-self.alpha_n*self.bathy_np*self.qbar_dx_n))
+        self.flux_v_n = np.array((-self.alpha_n*self.bathy_np*self.qbar_dy_n))
+
+        self.eddyFluxes_n = (1/(2*self.d))*(self.flux_v_n[2:,1:-1] - self.flux_v_n[:-2,1:-1] + self.flux_u_n[1:-1,2:] - self.flux_u_n[1:-1,:-2])
+        self.eddyFluxes_n = np.pad(self.eddyFluxes_n,((1,1)),constant_values=0)
+
+    def noEddyFluxes(self):
+        self.eddyFluxes_n = np.zeros_like(self.xibar_n)
+
+    def eddyFluxes_constant(self):
+        self.qbar_n = np.array((self.f + self.xibar_n)/self.bathy_np)
+        self.qbar_dx_n = self.dx_YGXG(var=self.qbar_n)
+        self.qbar_dy_n = self.dy_YGXG(var=self.qbar_n)
+
+        # ZETA fluxes
+        self.flux_u_n = -self.kappa_q*self.bathy_np*self.qbar_dx_n
+        self.flux_v_n = -self.kappa_q*self.bathy_np*self.qbar_dy_n
+
+        self.eddyFluxes_n = (1/(2*self.d))*(self.flux_v_n[2:,1:-1] - self.flux_v_n[:-2,1:-1] + self.flux_u_n[1:-1,2:] - self.flux_u_n[1:-1,:-2])
+        self.eddyFluxes_n = np.pad(self.eddyFluxes_n,((1,1)),constant_values=0)
+>>>>>>> 4115cb5202ec6818746491ee6b4a0b49c06f3ec4
 
 
 
-# %%
-'''H = 5000
-h = 500
-dx = 2000
-dy = 2000
-Nx = 500
-Ny = 500
-Lx = dx*Nx 
-Ly = dy*Ny
-
-bathy_mount = [[(H-h*np.sin((np.pi*(i*dx))/Lx)*np.sin((np.pi*(j*dy))/Ly)) for i in range(Nx+1)] for j in range(Ny+1)]
-
-test_diags = Barotropic(d=2000,Nx=Nx,Ny=Ny,bathy=bathy_mount,f0=0.7E-4,beta=2.E-11)
-
-test_diags.gen_init_psi(k_peak=2,const=1E12)
-test_diags.xi_from_psi()
-
-X,Y = np.meshgrid(test_diags.XG/1000,test_diags.YG/1000)
-
-plt.contourf(X,Y,test_diags.xibar_0)
-plt.colorbar()
-plt.show()
-
-plt.contourf(X,Y,test_diags.psibar_0)
-plt.colorbar()
-plt.show()
-
-plt.contourf(test_diags.XG/1000,test_diags.YC/1000,test_diags.ubar_0)
-plt.colorbar()
-plt.show()
-
-print(test_diags.xibar_0)
-
-#%%
-
-diagnostics = ['xi_u','xi_v','u_u','v_v']
-data = test_diags.model(dt=900,Nt=10,gamma_q=0,r_BD=0,r_diff=2,tau_0=0,rho_0=1000,dumpFreq=1800,meanDumpFreq=1800,diags=diagnostics)
-# %%
-
-print(data)
-# %%
-
-plt.contourf(data.XG/1000,data.YC/1000,data.u[5])
-plt.colorbar()
-plt.show()
-
-
-# %%
-
-print(np.array_equal(data.u_u,data.u**2))
-print(np.array_equal(data.v_v,data.v**2))
-
-
-# %%
-u = np.array(data.u)
-v = np.array(data.v)
-xi = np.array(data.xi)
-
-for t in range(len(u)):
-    xi_u = xi[t,1:-1,1:-1]*((u[t,1:,1:-1] + u[t,:-1,1:-1])/2)
-    xi_u = np.pad(xi_u,((1,1)),constant_values=0)
-    print(np.array_equal(xi_u,data.xi_u[t]))
-
-for t in range(len(v)):
-    xi_v = xi[t,1:-1,1:-1]*((v[t,1:-1,1:] + v[t,1:-1,:-1])/2)
-    xi_v = np.pad(xi_v,((1,1)),constant_values=0)
-    print(np.array_equal(xi_v,data.xi_v[t]))
 
 
 
-# %%
-print(data.Nx)'''
-# %%
+'''d = 5000 # m
+Nx = 200
+Ny = 400
+Lx = d*Nx # m
+Ly = d*Ny # m
+f0 = 0.7E-4 # s-1
+beta = 0 # m-1s-1
+r_BD = 0
+mu_xi_B = 1.E8
+mu_xi_L = 0
+tau_0 = 0.2
+rho_0 = 1025
+dt = 900
+Nt = 96
+dumpFreq = 900
+meanDumpFreq = 86400
+diagnostics = ['xi_u','xi_v','u_u','v_v','xi_xi']
+
+bathy_random = xr.load_dataarray('./inits/randomTopography_5km_WIND')
+
+domain_1 = Barotropic(d=d,Nx=Nx,Ny=Ny,bathy=bathy_random,f0=f0,beta=beta)
+
+init_psi = np.zeros((Ny+1,Nx+1))
+domain_1.init_psi(init_psi)
+domain_1.xi_from_psi()
+
+data_1 = domain_1.model(dt=dt,\
+    Nt=Nt,\
+        r_BD=r_BD,\
+            mu_xi_L=mu_xi_L,\
+                mu_xi_B=mu_xi_B,\
+                    tau_0=tau_0,\
+                        rho_0=rho_0,\
+                            dumpFreq=dumpFreq,\
+                                meanDumpFreq=meanDumpFreq,\
+                                    diags=diagnostics)'''
+
+
+
+
