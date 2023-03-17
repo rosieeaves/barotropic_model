@@ -12,3 +12,6 @@ jupyter_cookie_secret
 animations/
 __pycache__/*
 slurm*
+model_run_files/*
+analysis/*
+*.pyc
