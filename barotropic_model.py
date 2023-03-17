@@ -1,4 +1,3 @@
-#%%
 
 import numpy as np
 import pyfftw.interfaces.numpy_fft as fftw
@@ -10,7 +9,6 @@ import matplotlib.colors as colors
 import scipy.interpolate as interp
 import time
 
-#%%
 
 class Barotropic:
 
@@ -129,11 +127,33 @@ class Barotropic:
         except ValueError:
             print('Initial psi must have shape (Ny+1,Nx+1) to be defined on the grid corners.')
         else:
+            self.start = 'FE'
             # set zero on boundaries
             psi_remove = psi[1:-1,1:-1]
             psi_pad = np.pad(psi_remove,((1,1)),constant_values=0)
             self.psibar_0 = psi_pad
             self.calc_UV(psi=self.psibar_0,u_return='ubar_0',v_return='vbar_0')
+
+    def init_from_previous(self,xi,F_nm1,F_nm2):
+        try:
+            np.shape(xi) == ((self.NyG,self.NxG))
+        except ValueError: 
+            print('Initial xi must have shape (Ny+1,Nx+1) to be defined on the grid corners.')
+        else:
+            try:
+                np.shape(F_nm1) == ((self.NyG,self.NxG))
+            except ValueError: 
+                print('F_nm1 must have shape (Ny+1,Nx+1) to be defined on the grid corners.')
+            else: 
+                try:
+                    np.shape(F_nm2) == ((self.NyG,self.NxG))
+                except ValueError: 
+                    print('F_nm2 must have shape (Ny+1,Nx+1) to be defined on the grid corners.')
+                else:
+                    self.start = 'AB3'
+                    self.xibar_0 = xi
+                    self.psi_from_xi()
+
 
     def init_xi(self,xi):
         try:
@@ -141,18 +161,11 @@ class Barotropic:
         except ValueError:
             print('Initial xi must have shape (Ny+1,Nx+1) to be defined on the grid corners.')
         else:
+            self.start = 'FE'
             # set zero on boundaries
             xi_remove = xi[1:-1,1:-1]
             xi_pad = np.pad(xi_remove,((1,1)),constant_values=0)
             self.xibar_0 = xi_pad
-            '''self.xibar_0 = xr.DataArray(
-                xi_pad,
-                dims = ['YG','XG'],
-                coords = {
-                    'YG': self.YG,
-                    'XG': self.XG
-                }
-            )'''
 
     def psi_from_xi(self):
         try:
@@ -167,16 +180,6 @@ class Barotropic:
             psibar = psibar.reshape((self.NyG,self.NxG))
 
             self.psibar_0 = psibar
-
-            '''self.psibar_0 = xr.DataArray(
-                psibar,
-                dims = ['YG','XG'],
-                coords = {
-                    'YG': self.YG,
-                    'XG': self.XG
-                }
-            )'''
-
             self.calc_UV(psi=self.psibar_0,u_return='ubar_0',v_return='vbar_0')
 
 
@@ -560,7 +563,7 @@ class Barotropic:
 
                         
        
-                    # reset values
+                    # reset values 
                     self.F_nm2 = self.F_nm1.copy()
                     self.F_nm1 = self.F_n.copy()
                     self.F_n = np.zeros_like(self.F_n)
@@ -593,16 +596,20 @@ class Barotropic:
 
             def AB3(var_n,dt,F_n,F_nm1,F_nm2):
                 return var_n + (dt/12)*(23*F_n - 16*F_nm1 + 5*F_nm2)
-
+            
+            t_0 = 1
             # first two time steps with forward Euler
-            func_to_run = time_step(scheme=forward_Euler,t=1,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
-            func_to_run()
+            if self.start == 'FE':
+                func_to_run = time_step(scheme=forward_Euler,t=1,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
+                func_to_run()
 
-            func_to_run = time_step(scheme=forward_Euler,t=2,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
-            func_to_run()
+                func_to_run = time_step(scheme=forward_Euler,t=2,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
+                func_to_run()
+
+                t_0 = 3
 
             # all other time steps with AB3:
-            for t in range(3,Nt+1):
+            for t in range(t_0,self.Nt+1):
                 print('ts = ' + str(t))
                 func_to_run = time_step(scheme=AB3,t=t,dumpFreq=dumpFreqTS,meanDumpFreq=meanDumpFreqTS)
                 func_to_run()
@@ -729,6 +736,24 @@ class Barotropic:
                     'T_MEAN': self.T_MEAN,
                     'YG': self.YG,
                     'XC': self.XC
+                }
+            )
+
+            dataset_return['xi_F_nm1'] = xr.DataArray(
+                self.F_nm1.astype('float64'),
+                dims = ['YG','XG'],
+                coords = {
+                    'YG': self.YG,
+                    'XG': self.XG
+                }
+            )
+
+            dataset_return['xi_F_nm2'] = xr.DataArray(
+                self.F_nm2.astype('float64'),
+                dims = ['YG','XG'],
+                coords = {
+                    'YG': self.YG,
+                    'XG': self.XG
                 }
             )
             
@@ -1044,10 +1069,8 @@ class Barotropic:
 
         '''tau = np.array(self.tau)
         bathy = self.bathy
-
         tau_xi = (-tau[2:,1:-1] + tau[:-2,1:-1])/(2*self.d*self.rho_0*bathy[1:-1,1:-1])
         tau_xi = np.pad(tau_xi,((1,1)),constant_values=0)
-
         self.wind_stress = xr.DataArray(
             tau_xi,
             dims = ['YG','XG'],
@@ -1060,6 +1083,7 @@ class Barotropic:
         dtau_dy = [((2*self.tau_0*np.pi)/(self.Ly)*np.sin((2*np.pi*y)/self.Ly))*np.ones(self.NxG) for y in self.YG]*(1/self.bathy)
 
         tau_xi = (-1/self.rho_0)*(dtau_dy - (self.tau*self.bathy.differentiate(coord='YG'))/(self.bathy**2))
+        tau_xi = np.roll(tau_xi,len(tau_xi[0]))
 
         self.wind_stress = xr.DataArray(
             tau_xi,
@@ -1300,8 +1324,9 @@ class Barotropic:
 
 
 
-#%%
-# DOMAIN
+
+
+
 '''d = 5000 # m
 Nx = 200
 Ny = 400
@@ -1316,19 +1341,19 @@ tau_0 = 0.2
 rho_0 = 1025
 dt = 900
 Nt = 96
-dumpFreq = 86400
-meanDumpFreq = 864000
+dumpFreq = 900
+meanDumpFreq = 86400
 diagnostics = ['xi_u','xi_v','u_u','v_v','xi_xi']
 
 bathy_random = xr.load_dataarray('./inits/randomTopography_5km_WIND')
 
-domain = Barotropic(d=d,Nx=Nx,Ny=Ny,bathy=bathy_random,f0=f0,beta=beta)
+domain_1 = Barotropic(d=d,Nx=Nx,Ny=Ny,bathy=bathy_random,f0=f0,beta=beta)
 
 init_psi = np.zeros((Ny+1,Nx+1))
-domain.init_psi(init_psi)
-domain.xi_from_psi()
+domain_1.init_psi(init_psi)
+domain_1.xi_from_psi()
 
-domain.model(dt=dt,\
+data_1 = domain_1.model(dt=dt,\
     Nt=Nt,\
         r_BD=r_BD,\
             mu_xi_L=mu_xi_L,\
@@ -1338,7 +1363,7 @@ domain.model(dt=dt,\
                             dumpFreq=dumpFreq,\
                                 meanDumpFreq=meanDumpFreq,\
                                     diags=diagnostics)'''
-# %%
 
 
-# %%
+
+
