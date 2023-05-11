@@ -1,3 +1,4 @@
+#%%
 import numpy as np
 import pyfftw.interfaces.numpy_fft as fftw
 import matplotlib.pyplot as plt
@@ -8,6 +9,7 @@ import matplotlib.colors as colors
 import scipy.interpolate as interp
 import time
 
+#%%
 class Barotropic:
 
     ##########################################################################
@@ -219,7 +221,7 @@ class Barotropic:
         r_BD,mu_xi_L,mu_xi_B,\
             tau_0,rho_0,\
                 eddy_scheme=False,init_K=None,init_Q=None,gamma_q=None,mu_q_L=None,mu_q_B=None,mu_K_L=None,mu_K_B=None,r_Q=None,\
-                    r_K=None,min_val=None,max_val=None,kappa_q=None,K_min=None,Q_min=None,diags=[]):
+                    r_K=None,min_val=None,max_val=None,kappa_q=None,K_min=None,Q_min=None,diags=[],u_west=None):
 
         try:
             self.psibar_0
@@ -283,6 +285,13 @@ class Barotropic:
             self.min_val = min_val
             self.max_val = max_val
             self.kappa_q = kappa_q
+            if u_west == None:
+                self.u_west = 0
+            else:
+                if not(isinstance(u_west,int)) and not(isinstance(u_west,float)):
+                    raise ValueError('u_west should be an integer or a float.')
+                else:
+                    self.u_west = u_west
 
             # if initial u and v do not already exist, calculate them
             try:
@@ -301,6 +310,8 @@ class Barotropic:
             self.vbar_np1 = np.zeros_like(self.vbar_n)
             self.index = 0
             self.index_MEAN = 0
+
+            self.advWest_n = np.zeros_like(self.xibar_n)
 
             # calculate length of T and T_MEAN arrays
             len_T = int((self.Nt*self.dt)/self.dumpFreq)
@@ -351,7 +362,7 @@ class Barotropic:
                 # calculate value at time zero, set it to var_np1
                 self.diagnosticsFunctionsDict[var](xi=self.xibar_0,psi=self.psibar_0,u=self.ubar_0,v=self.vbar_0,var_return=self.diagnosticsNP1Dict[var])
                 # put value at time zero in 0th index of saved data array
-                getattr(self,var)[0] = getattr(self,self.diagnosticsNP1Dict[var])
+                getattr(self,var)[0] = getattr(self,self.diagnosticsNP1Dict[var]).copy()
                 # reset var_np1 to zero
                 setattr(self,self.diagnosticsNP1Dict[var],np.zeros((num_Y,num_X)))
                 # create array to save MEAN data in, e.g. self.xi_u_MEAN. Initialise with zeros. 
@@ -431,6 +442,7 @@ class Barotropic:
                 self.alpha = np.zeros((len_T+1,self.NyG,self.NxG),dtype=object)
                 self.qbar_dx = np.zeros((len_T+1,self.NyG,self.NxG),dtype=object)
                 self.qbar_dy = np.zeros((len_T+1,self.NyG,self.NxG),dtype=object)
+                self.Q_min_pad = np.pad((self.Q_min*np.ones_like(self.Q_n))[1:-1,1:-1],((1,1)),constant_values=0)
 
                 self.flux_u_n = np.zeros_like(self.xibar_n)
                 self.flux_v_n = np.zeros_like(self.xibar_n)
@@ -438,9 +450,13 @@ class Barotropic:
                 # scheme diagnostics 
                 self.enstrophyGen_n = np.zeros_like(self.Q_0)
                 self.enstrophyGen = np.zeros((len_T+1,self.NyG,self.NxG),dtype=object)
+                self.enstrophyGen_sum = np.zeros((self.NyG,self.NxG))
+                self.enstrophyGen_MEAN = np.zeros((len_T_MEAN,self.NyG,self.NxG),dtype=object)
                 self.energyConv_n = np.zeros_like(self.K_0)
                 self.energyConv_n_YCXC = np.zeros_like(self.K_0)
                 self.energyConv = np.zeros((len_T+1,self.NyC,self.NxC),dtype=object)
+                self.energyConv_sum = np.zeros((self.NyC,self.NxC))
+                self.energyConv_MEAN = np.zeros((len_T_MEAN,self.NyC,self.NxC),dtype=object)
                 self.eddyFluxes = np.zeros((len_T+1,self.NyG,self.NxG),dtype=object)
             else:
                 self.Q_0 = np.zeros_like(self.xibar_n)
@@ -474,7 +490,7 @@ class Barotropic:
                     self.schemeFunctionsDict['calc_K_Q'](scheme=scheme)
                     self.schemeFunctionsDict['calc_eddyFluxes']()
                     # F_n
-                    self.F_n = -self.adv_n - self.eddyFluxes_n - self.BD_n + self.diffusion_L_n - self.diffusion_B_n + np.array(self.wind_stress)
+                    self.F_n = -self.adv_n - self.eddyFluxes_n - self.advWest_n - self.BD_n + self.diffusion_L_n - self.diffusion_B_n + np.array(self.wind_stress)
                     # calculate new value of xibar
                     self.xibar_np1 = scheme(var_n=self.xibar_n,dt=self.dt,F_n=self.F_n,F_nm1=self.F_nm1,F_nm2=self.F_nm2)
 
@@ -499,8 +515,11 @@ class Barotropic:
                         # Run function to set np1 variable, e.g. self.xi_u_np1, to new value
                         self.diagnosticsFunctionsDict[var](xi=self.xibar_np1,psi=self.psibar_np1,u=self.ubar_np1,\
                                                            v=self.vbar_np1,var_return=self.diagnosticsNP1Dict[var])
+
                         # set sum variable, e.g. self.xi_u_sum, to sum + np1 e.g. self.xi_u_sum + self.xi_u_np1
-                        self.__dict__[self.diagnosticsSumDict[var]] += self.__dict__[self.diagnosticsNP1Dict[var]]
+                        setattr(self,self.diagnosticsSumDict[var],getattr(self,self.diagnosticsSumDict[var])+getattr(self,self.diagnosticsNP1Dict[var]))
+                        #self.__dict__[self.diagnosticsSumDict[var]] += self.__dict__[self.diagnosticsNP1Dict[var]]
+
                     
 
                     # DUMP DATA EVERY dumpFreq SECONDS
@@ -548,9 +567,14 @@ class Barotropic:
                         if self.eddy_scheme != False and eddy_scheme != 'constant':
                             self.Q_MEAN[self.index_MEAN] = (self.Q_sum*self.dt)/self.meanDumpFreq
                             self.K_MEAN[self.index_MEAN] = (self.K_sum*self.dt)/self.meanDumpFreq
+                            self.enstrophyGen_MEAN[self.index_MEAN] = (self.enstrophyGen_sum*self.dt)/self.meanDumpFreq
+                            self.energyConv_MEAN[self.index_MEAN] = (self.energyConv_sum*self.dt)/self.meanDumpFreq
 
                             self.Q_sum = np.zeros_like(self.Q_sum)
                             self.K_sum = np.zeros_like(self.K_sum)
+                            self.enstrophyGen_sum = np.zeros_like(self.enstrophyGen_sum)
+                            self.energyConv_sum = np.zeros_like(self.energyConv_sum)
+
 
 
                         # run diagnostics 
@@ -878,11 +902,31 @@ class Barotropic:
                     }
                 )
 
+                dataset_return['enstrophyGen_MEAN'] = xr.DataArray(
+                    self.enstrophyGen_MEAN.astype('float64'),
+                    dims = ['T_MEAN','YG','XG'],
+                    coords = {
+                        'T_MEAN': self.T_MEAN,
+                        'YG': self.YG,
+                        'XG': self.XG
+                    }
+                )
+
                 dataset_return['energyConv'] = xr.DataArray(
                     self.energyConv.astype('float64'),
                     dims = ['T','YC','XC'],
                     coords = {
                         'T': self.T,
+                        'YC': self.YC,
+                        'XC': self.XC
+                    }
+                )
+
+                dataset_return['energyConv_MEAN'] = xr.DataArray(
+                    self.energyConv_MEAN.astype('float64'),
+                    dims = ['T_MEAN','YC','XC'],
+                    coords = {
+                        'T_MEAN': self.T_MEAN,
                         'YC': self.YC,
                         'XC': self.XC
                     }
@@ -1248,13 +1292,17 @@ class Barotropic:
         self.energyConv_n = -self.alpha_n*(self.qbar_dx_n*self.psi_dx_n + self.qbar_dy_n*self.psi_dy_n) 
         self.energyConv_n_YCXC = (np.array(self.energyConv_n)[1:,1:] + np.array(self.energyConv_n)[1:,:-1] + \
             np.array(self.energyConv_n)[:-1,1:] + np.array(self.energyConv_n)[:-1,:-1])/4
+        
+        # add to sum variables
+        self.enstrophyGen_sum = self.enstrophyGen_sum + self.enstrophyGen_n
+        self.energyConv_sum  = self.energyConv_sum + self.energyConv_n_YCXC
 
     def K_Q_EGEC(self,scheme):
 
         self.EGEC()
         
         # dQdt and dKdt
-        self.Q_F_n = -self.enstrophyGen_n - (self.Q_n - self.Q_min*np.ones_like(self.Q_n))*self.r_Q
+        self.Q_F_n = -self.enstrophyGen_n - (self.Q_n - self.Q_min_pad)*self.r_Q
         self.K_F_n = self.energyConv_n_YCXC - (self.K_n - self.K_min*np.ones_like(self.K_n))*self.r_K
         
         # step forward Q and K
@@ -1286,7 +1334,7 @@ class Barotropic:
         #self.biharmonic(var=self.K_n,mu=self.mu_K_B,var_return='KDiff_B_n')
 
         # dQdt and dKdt
-        self.Q_F_n = -self.enstrophyGen_n  - self.QAdv_n/self.bathy_np + self.QDiff_L_n - self.QDiff_B_n - (self.Q_n - self.Q_min*np.ones_like(self.Q_n))*self.r_Q
+        self.Q_F_n = -self.enstrophyGen_n  - self.QAdv_n/self.bathy_np + self.QDiff_L_n - self.QDiff_B_n - (self.Q_n - self.Q_min_pad)*self.r_Q
         self.K_F_n = self.energyConv_n_YCXC - self.KAdv_n/self.bathy_YCXC + self.KDiff_L_n - self.KDiff_B_n - (self.K_n - self.K_min*np.ones_like(self.K_n))*self.r_K
         
         # step forward Q and K
@@ -1327,50 +1375,59 @@ class Barotropic:
         self.eddyFluxes_n = np.pad(self.eddyFluxes_n,((1,1)),constant_values=0)
 
 
+#%%
 
-
-'''d = 100000 # m
-Nx = 40
-Ny = 40
+'''d = 50000 # m
+Nx = 80
+Ny = 80
 Lx = d*Nx # m
 Ly = d*Ny # m
 f0 = 0.7E-4 # s-1
 beta = 2.E-11 # m-1s-1
-r_BD = 0
-r_K = 1.E-6
-r_Q = 1.E-9
-K_min = 1.E-12
-Q_min = 1.E-25
-mu_xi_B = 1.E8
+# VORTICITY PARAMETERS
+r_BD = 0.5E-7
+mu_xi_B = 1.E12
 mu_xi_L = 0
-gamma_q = 0.02
-mu_q_L = 100
-mu_q_B = 0
-mu_K_L = 10
+# EDDY SCHEME PARAMETERS
+mu_q_L = 0
+mu_q_B = 1.E12
+mu_K_L = 1.E4
 mu_K_B = 0
+r_Q = 1.E-7
+r_K = 0.6E-7
+Q_min = 1.E-17
+K_min = 1.E-3
+gamma_q = 0.03
 min_val = 1.E-16
-max_val = 1.E3
-tau_0 = 0.2
+max_val = 1.E4
+#kappa_q = 20
+# WIND PARAMETERS
+tau_0 = 0.1
 rho_0 = 1025
+# TIME STEPPING
 dt = 2700
-Nt = 32
+Nt = 10
 dumpFreq = 2700
-meanDumpFreq = 86400
+meanDumpFreq = 27000
 diagnostics = ['xi_u','xi_v','u_u','v_v','xi_xi']
 
 #bathy_random = xr.load_dataarray('./inits/randomTopography_5km_WIND')
-bathy_flat = 5000*np.ones((Ny+1,Nx+1))
-
-init_K = 1.E-12*np.ones((Ny,Nx))
-init_Q = Q_min*np.ones((Ny+1,Nx+1))
+bathy_flat = 500*np.ones((Ny+1,Nx+1))
 
 domain = Barotropic(d=d,Nx=Nx,Ny=Ny,bathy=bathy_flat,f0=f0,beta=beta)
+
+init_K = K_min*np.ones((Ny,Nx))
+init_Q = np.pad(Q_min*np.ones((Ny+1,Nx+1))[1:-1,1:-1],((1,1)),constant_values=0)
 
 init_psi = np.zeros((Ny+1,Nx+1))
 domain.init_psi(init_psi)
 domain.xi_from_psi()'''
 
-'''data_1 = domain_1.model(dt=dt,\
+#%%
+
+#%%
+
+'''data_1 = domain.model(dt=dt,\
     Nt=Nt,\
         r_BD=r_BD,\
             mu_xi_L=mu_xi_L,\
@@ -1390,7 +1447,7 @@ domain.xi_from_psi()'''
                         mu_xi_B=mu_xi_B,\
                             tau_0=tau_0,\
                                 rho_0=rho_0,\
-                                    eddy_scheme='EGECAD',\
+                                    eddy_scheme='EGEC',\
                                         init_K=init_K,\
                                             init_Q=init_Q,\
                                                 gamma_q=gamma_q,\
@@ -1404,7 +1461,25 @@ domain.xi_from_psi()'''
                                                                                 K_min=K_min,\
                                                                                     min_val=min_val,\
                                                                                         max_val = max_val,\
-                                                                                            diags=diagnostics)'''
+                                                                                            diags=diagnostics,\
+                                                                                                u_west='test')
 
 
 
+
+# %%
+print(data.enstrophyGen[4])
+# %%
+print(domain.QAdv_n)
+# %%
+print(domain.QDiff_L_n)
+# %%
+print(domain.Q_F_n)
+# %%
+print(domain.Q[5])
+# %%
+print(type(10))
+# %%
+if isinstance(1.E-10,float):
+    print('yes')'''
+# %%
