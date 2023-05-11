@@ -221,7 +221,7 @@ class Barotropic:
         r_BD,mu_xi_L,mu_xi_B,\
             tau_0,rho_0,\
                 eddy_scheme=False,init_K=None,init_Q=None,gamma_q=None,mu_q_L=None,mu_q_B=None,mu_K_L=None,mu_K_B=None,r_Q=None,\
-                    r_K=None,min_val=None,max_val=None,kappa_q=None,K_min=None,Q_min=None,diags=[],u_west=None):
+                    r_K=None,min_val=None,max_val=None,kappa_q=None,K_min=None,Q_min=None,diags=[]):
 
         try:
             self.psibar_0
@@ -285,13 +285,13 @@ class Barotropic:
             self.min_val = min_val
             self.max_val = max_val
             self.kappa_q = kappa_q
-            if u_west == None:
+            '''if u_west == None:
                 self.u_west = 0
             else:
                 if not(isinstance(u_west,int)) and not(isinstance(u_west,float)):
                     raise ValueError('u_west should be an integer or a float.')
                 else:
-                    self.u_west = u_west
+                    self.u_west = u_west'''
 
             # if initial u and v do not already exist, calculate them
             try:
@@ -495,7 +495,7 @@ class Barotropic:
                     self.schemeFunctionsDict['calc_K_Q'](scheme=scheme)
                     self.schemeFunctionsDict['calc_eddyFluxes']()
                     # F_n
-                    self.F_n = -self.adv_n - self.eddyFluxes_n - self.advWest_n - self.BD_n + self.diffusion_L_n - self.diffusion_B_n + np.array(self.wind_stress)
+                    self.F_n = -self.adv_n - self.eddyFluxes_n - self.BD_n + self.diffusion_L_n - self.diffusion_B_n + np.array(self.wind_stress)
                     # calculate new value of xibar
                     self.xibar_np1 = scheme(var_n=self.xibar_n,dt=self.dt,F_n=self.F_n,F_nm1=self.F_nm1,F_nm2=self.F_nm2)
 
@@ -1467,7 +1467,7 @@ class Barotropic:
 
 #%%
 
-d = 50000 # m
+'''d = 50000 # m
 Nx = 80
 Ny = 80
 Lx = d*Nx # m
@@ -1512,7 +1512,7 @@ print(np.shape(init_Q))
 
 init_psi = np.zeros((Ny+1,Nx+1))
 domain.init_psi(init_psi)
-domain.xi_from_psi()
+domain.xi_from_psi()'''
 
 #%%
 
@@ -1529,7 +1529,7 @@ domain.xi_from_psi()
                                 meanDumpFreq=meanDumpFreq,\
                                     diags=diagnostics)'''
 
-data = domain.model(dt=dt,\
+'''data = domain.model(dt=dt,\
     Nt=Nt,\
         dumpFreq=dumpFreq,\
             meanDumpFreq=meanDumpFreq,\
@@ -1552,14 +1552,9 @@ data = domain.model(dt=dt,\
                                                                                 K_min=K_min,\
                                                                                     min_val=min_val,\
                                                                                         max_val = max_val,\
-                                                                                            diags=diagnostics)
+                                                                                            diags=diagnostics)'''
 
 
 
 
-# %%
-for t in range(len(data.T)):
-    plt.contourf(data.XC,data.YC,data.Q[t])
-    plt.colorbar()
-    plt.show()
 # %%
