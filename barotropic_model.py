@@ -467,8 +467,8 @@ class Barotropic:
                     self.kappa = np.zeros((len_T+1,self.NyC,self.NxC),dtype=object)
                     self.qbar_dx = np.zeros((len_T+1,self.NyC,self.NxC),dtype=object)
                     self.qbar_dy = np.zeros((len_T+1,self.NyC,self.NxC),dtype=object)
-                    self.Q_min_pad = self.Q_min*np.ones((self.NyC,self.NxC))
-                    self.K_min_pad = self.K_min*np.ones((self.NyC,self.NxC))
+                    self.Q_min_array = self.Q_min*np.ones((self.NyC,self.NxC))
+                    self.K_min_array = self.K_min*np.ones((self.NyC,self.NxC))
 
                     self.flux_u_n = np.zeros((self.NyC,self.NxC))
                     self.flux_v_n = np.zeros((self.NyC,self.NxC))
@@ -1293,7 +1293,7 @@ class Barotropic:
 
     def advection_YCXC(self,var,var_return):
 
-        var_pad = np.pad(var,((1,1)),mode='edge')
+        var_pad = np.pad(var,((1,1)),constant_values=0)
         
         var_adv = (1/(4*self.d))*\
             ((self.bathy_np[1:,:-1] + self.bathy_np[1:,1:])*(var_pad[1:-1,1:-1] + var_pad[2:,1:-1])*self.vbar_n[1:,:] + \
@@ -1339,22 +1339,22 @@ class Barotropic:
 
         # NOTE: we use the values at time step n here to calculate dQ/dt_n and dK/dt_n so that we can claculate Q_np1 and K_np1
         # parameterized terms 
-        self.qbar_n = np.array((self.f + self.xibar_n)/self.bathy_np)
-        self.qbar_dx_n = (self.qbar_n[1:,1:] + self.qbar_n[:-1,1:] - self.qbar_n[1:,:-1] - self.qbar_n[:-1,:-1])/(2*self.dx)
-        self.qbar_dy_n = (self.qbar_n[1:,1:] + self.qbar_n[1:,:-1] - self.qbar_n[:-1,1:] - self.qbar_n[:-1,:-1])/(2*self.dx)
-        self.psi_dx_n = (self.psibar_n[1:,1:] + self.psibar_n[:-1,1:] - self.psibar_n[1:,:-1] - self.psibar_n[:-1,:-1])/(2*self.dx)
-        self.psi_dy_n = (self.psibar_n[1:,1:] + self.psibar_n[1:,:-1] - self.psibar_n[:-1,1:] - self.psibar_n[:-1,:-1])/(2*self.dx)
+        self.qbar_n = np.array((self.f + self.xibar_n)/self.bathy_np) # YGXG
+        self.qbar_dx_n = (self.qbar_n[1:,1:] + self.qbar_n[:-1,1:] - self.qbar_n[1:,:-1] - self.qbar_n[:-1,:-1])/(2*self.dx) # YCXC
+        self.qbar_dy_n = (self.qbar_n[1:,1:] + self.qbar_n[1:,:-1] - self.qbar_n[:-1,1:] - self.qbar_n[:-1,:-1])/(2*self.dx) # YCXC
+        self.psi_dx_n = (self.psibar_n[1:,1:] + self.psibar_n[:-1,1:] - self.psibar_n[1:,:-1] - self.psibar_n[:-1,:-1])/(2*self.dx) # YCXC
+        self.psi_dy_n = (self.psibar_n[1:,1:] + self.psibar_n[1:,:-1] - self.psibar_n[:-1,1:] - self.psibar_n[:-1,:-1])/(2*self.dx) # YCXC
 
-        self.mod_grad_qbar_n = np.sqrt(self.qbar_dx_n**2 + self.qbar_dy_n**2)
+        self.mod_grad_qbar_n = np.sqrt(self.qbar_dx_n**2 + self.qbar_dy_n**2) # YCXC
         # set minimum value on mod_grad_qbar
-        self.mod_grad_qbar_n = np.where(self.mod_grad_qbar_n < self.min_val, self.min_val*np.ones_like(self.mod_grad_qbar_n), self.mod_grad_qbar_n)
+        self.mod_grad_qbar_n = np.where(self.mod_grad_qbar_n < self.min_val, self.min_val*np.ones_like(self.mod_grad_qbar_n), self.mod_grad_qbar_n) # YCXC
 
-        self.kappa_n = (2*self.gamma_q*np.sqrt(self.Q_n*self.K_n))/self.mod_grad_qbar_n   
+        self.kappa_n = (2*self.gamma_q*np.sqrt(self.Q_n*self.K_n))/self.mod_grad_qbar_n # YCXC
         # set maximum value on alpha_n
-        self.kappa_n = np.where(self.kappa_n > self.max_val, self.max_val*np.ones_like(self.kappa_n),self.kappa_n)
+        self.kappa_n = np.where(self.kappa_n > self.max_val, self.max_val*np.ones_like(self.kappa_n),self.kappa_n) # YCXC
 
-        self.enstrophyGen_n = -self.kappa_n*(self.qbar_dx_n**2 + self.qbar_dy_n**2)
-        self.energyConv_n = -self.kappa_n*(self.qbar_dx_n*self.psi_dx_n + self.qbar_dy_n*self.psi_dy_n)
+        self.enstrophyGen_n = -self.kappa_n*(self.qbar_dx_n**2 + self.qbar_dy_n**2) # YCXC
+        self.energyConv_n = -self.kappa_n*(self.qbar_dx_n*self.psi_dx_n + self.qbar_dy_n*self.psi_dy_n) # YCXC
         
         # add to sum variables
         self.enstrophyGen_sum = self.enstrophyGen_sum + self.enstrophyGen_n
@@ -1375,8 +1375,8 @@ class Barotropic:
         self.KDiff_L_n = self.KDiff_L_n[1:-1,1:-1]
         
         # dQdt and dKdt
-        self.Q_F_n = -self.enstrophyGen_n - (self.Q_n - self.Q_min_pad)*self.r_Q + self.QDiff_L_n - self.QDiff_B_n
-        self.K_F_n = self.energyConv_n - (self.K_n - self.K_min_pad)*self.r_K + self.KDiff_L_n - self.KDiff_B_n
+        self.Q_F_n = -self.enstrophyGen_n - (self.Q_n - self.Q_min_array)*self.r_Q + self.QDiff_L_n 
+        self.K_F_n = self.energyConv_n - (self.K_n - self.K_min_array)*self.r_K + self.KDiff_L_n 
         
         # step forward Q and K
         self.Q_np1 = scheme(var_n=self.Q_n,dt=self.dt,F_n=self.Q_F_n,F_nm1=self.Q_F_nm1,F_nm2=self.Q_F_nm2)
@@ -1407,8 +1407,8 @@ class Barotropic:
         self.KDiff_L_n = self.KDiff_L_n[1:-1,1:-1]
 
         # dQdt and dKdt
-        self.Q_F_n = -self.enstrophyGen_n  - self.QAdv_n/self.bathy_YCXC + self.QDiff_L_n - self.QDiff_B_n - (self.Q_n - self.Q_min_pad)*self.r_Q
-        self.K_F_n = self.energyConv_n - self.KAdv_n/self.bathy_YCXC + self.KDiff_L_n - self.KDiff_B_n - (self.K_n - self.K_min_pad)*self.r_K
+        self.Q_F_n = -self.enstrophyGen_n  - self.QAdv_n/self.bathy_YCXC + self.QDiff_L_n - (self.Q_n - self.Q_min_array)*self.r_Q
+        self.K_F_n = self.energyConv_n - self.KAdv_n/self.bathy_YCXC + self.KDiff_L_n - (self.K_n - self.K_min_array)*self.r_K
         
         # step forward Q and K
         self.Q_np1 = scheme(var_n=self.Q_n,dt=self.dt,F_n=self.Q_F_n,F_nm1=self.Q_F_nm1,F_nm2=self.Q_F_nm2)
@@ -1426,8 +1426,8 @@ class Barotropic:
 
     def eddyFluxes_scheme(self):
         # ZETA fluxes
-        self.flux_u_n = np.array((-self.kappa_n*self.bathy_YCXC*self.qbar_dx_n))
-        self.flux_v_n = np.array((-self.kappa_n*self.bathy_YCXC*self.qbar_dy_n))
+        self.flux_u_n = np.array((-self.kappa_n*self.bathy_YCXC*self.qbar_dx_n)) # YCXC
+        self.flux_v_n = np.array((-self.kappa_n*self.bathy_YCXC*self.qbar_dy_n)) # YCXC
 
 
         self.eddyFluxes_n = (1/(2*self.d))*(self.flux_v_n[1:,1:] + self.flux_v_n[1:,:-1] - self.flux_v_n[:-1,1:] - self.flux_v_n[:-1,:-1] + \
@@ -1453,7 +1453,7 @@ class Barotropic:
 
 #%%
 
-'''d = 50000 # m
+d = 50000 # m
 Nx = 80
 Ny = 80
 Lx = d*Nx # m
@@ -1482,9 +1482,9 @@ tau_0 = 0.1
 rho_0 = 1025
 # TIME STEPPING
 dt = 2700
-Nt = 3200
-dumpFreq = 86400
-meanDumpFreq = 864000
+Nt = 10
+dumpFreq = 2700
+meanDumpFreq = 27000
 diagnostics = ['xi_u','xi_v','u_u','v_v','xi_xi']
 
 #bathy_random = xr.load_dataarray('./inits/randomTopography_5km_WIND')
@@ -1493,12 +1493,12 @@ bathy_flat = 500*np.ones((Ny+1,Nx+1))
 domain = Barotropic(d=d,Nx=Nx,Ny=Ny,bathy=bathy_flat,f0=f0,beta=beta)
 
 init_K = K_min*np.ones((Ny,Nx))
-init_Q = Q_min*np.ones((Ny+1,Nx+1))
+init_Q = Q_min*np.ones((Ny,Nx))
 print(np.shape(init_Q))
 
 init_psi = np.zeros((Ny+1,Nx+1))
 domain.init_psi(init_psi)
-domain.xi_from_psi()'''
+domain.xi_from_psi()
 
 
 #%%
@@ -1514,7 +1514,7 @@ domain.xi_from_psi()'''
                                 meanDumpFreq=meanDumpFreq,\
                                     diags=diagnostics)'''
 
-'''data = domain.model(dt=dt,\
+data = domain.model(dt=dt,\
     Nt=Nt,\
         dumpFreq=dumpFreq,\
             meanDumpFreq=meanDumpFreq,\
@@ -1523,7 +1523,7 @@ domain.xi_from_psi()'''
                         mu_xi_B=mu_xi_B,\
                             tau_0=tau_0,\
                                 rho_0=rho_0,\
-                                    eddy_scheme='AdvectionOnly',\
+                                    eddy_scheme='EGECAD',\
                                         init_K=init_K,\
                                             init_Q=init_Q,\
                                                 gamma_q=gamma_q,\
