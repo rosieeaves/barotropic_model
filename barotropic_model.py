@@ -67,6 +67,8 @@ class Barotropic:
             self.bathy_YCXC = (self.bathy_np[:-1,:-1] + self.bathy_np[1:,:-1] + \
                 
                 self.bathy_np[:-1,1:] + self.bathy_np[1:,1:])/4
+            
+            self.bathy_YCXC = np.array(self.bathy_YCXC)
 
             self.diagnosticsDict()
         
@@ -133,6 +135,7 @@ class Barotropic:
             psi_remove = psi[1:-1,1:-1]
             psi_pad = np.pad(psi_remove,((1,1)),constant_values=0)
             self.psibar_0 = psi_pad
+
             self.calc_UV(psi=self.psibar_0,u_return='ubar_0',v_return='vbar_0')
 
     def init_from_previous(self,xi,F_nm1,F_nm2):
@@ -531,7 +534,7 @@ class Barotropic:
                     self.schemeFunctionsDict['calc_K_Q'](scheme=scheme)
                     self.schemeFunctionsDict['calc_eddyFluxes']()
                     # F_n
-                    self.F_n = -self.adv_n - self.eddyFluxes_n - self.BD_n + self.diffusion_L_n - self.diffusion_B_n + np.array(self.wind_stress)
+                    self.F_n = self.adv_n - self.eddyFluxes_n - self.BD_n + self.diffusion_L_n - self.diffusion_B_n + np.array(self.wind_stress)
                     # calculate new value of xibar
                     self.xibar_np1 = scheme(var_n=self.xibar_n,dt=self.dt,F_n=self.F_n,F_nm1=self.F_nm1,F_nm2=self.F_nm2)
 
@@ -592,7 +595,6 @@ class Barotropic:
                             self.enstrophyGen[self.index] = self.enstrophyGen_n 
                             self.energyConv[self.index] = self.energyConv_n
                             self.eddyFluxes[self.index] = self.eddyFluxes_n
-                            self.KE_backscatter[self.index] = self.KE_backscatter_n
 
                     # DUMP MEAN DATA
                     if kw.get('t')%kw.get('meanDumpFreq') == 0:
@@ -1089,14 +1091,26 @@ class Barotropic:
 
         # calculate area average of advection term 
         # area average is take over the grid cell centred at the vorticity point, away from the boundaries
-        self.adv_n = (1/(self.d**2))*(((self.psiYCXC_n[1:,1:] - self.psiYCXC_n[1:,:-1])*\
+        '''self.adv_n = (1/(self.d**2))*(((self.psiYCXC_n[1:,1:] - self.psiYCXC_n[1:,:-1])*\
             (self.zeta_n[1:-1,1:-1] + self.zeta_n[2:,1:-1]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[2:,1:-1]) - \
                 ((self.psiYCXC_n[1:,1:] - self.psiYCXC_n[:-1,1:])*\
                     (self.zeta_n[1:-1,1:-1] + self.zeta_n[1:-1,2:]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[1:-1,2:]) - \
                         ((self.psiYCXC_n[:-1,1:] - self.psiYCXC_n[:-1,:-1])*\
                             (self.zeta_n[1:-1,1:-1] + self.zeta_n[:-2,1:-1]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[:-2,1:-1]) + \
                                 ((self.psiYCXC_n[1:,:-1] - self.psiYCXC_n[:-1,:-1])*\
-                                    (self.zeta_n[1:-1,1:-1] + self.zeta_n[1:-1,:-2]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[1:-1,:-2]))
+                                    (self.zeta_n[1:-1,1:-1] + self.zeta_n[1:-1,:-2]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[1:-1,:-2]))'''
+        
+        self.zeta_H_n = np.array(self.zeta_n/self.bathy_np)
+        
+        self.adv_n = (-1/(12*self.d**2))*((self.psibar_n[:-2,1:-1] + self.psibar_n[:-2,2:] - self.psibar_n[2:,1:-1] - self.psibar_n[2:,2:])*(self.zeta_H_n[1:-1,2:] - self.zeta_H_n[1:-1,1:-1]) + \
+                                         (self.psibar_n[:-2,:-2] + self.psibar_n[:-2,1:-1] - self.psibar_n[2:,:-2] - self.psibar_n[2:,1:-1])*(self.zeta_H_n[1:-1,1:-1] - self.zeta_H_n[1:-1,:-2]) + \
+                                            (self.psibar_n[1:-1,2:] + self.psibar_n[2:,2:] - self.psibar_n[1:-1,:-2] - self.psibar_n[2:,:-2])*(self.zeta_H_n[2:,1:-1] - self.zeta_H_n[1:-1,1:-1]) + \
+                                                (self.psibar_n[:-2,2:] + self.psibar_n[1:-1,2:] - self.psibar_n[:-2,:-2] - self.psibar_n[1:-1,:-2])*(self.zeta_H_n[1:-1,1:-1] - self.zeta_H_n[:-2,1:-1]) + \
+                                                    (self.psibar_n[1:-1,2:] - self.psibar_n[2:,1:-1])*(self.zeta_H_n[2:,2:]  - self.zeta_H_n[1:-1,1:-1]) + \
+                                                        (self.psibar_n[:-2,1:-1] - self.psibar_n[1:-1,:-2])*(self.zeta_H_n[1:-1,1:-1] - self.zeta_H_n[:-2,:-2]) + \
+                                                            (self.psibar_n[2:,1:-1] - self.psibar_n[1:-1,:-2])*(self.zeta_H_n[2:,:-2] - self.zeta_H_n[1:-1,1:-1]) + \
+                                                                (self.psibar_n[1:-1,2:] - self.psibar_n[:-2,1:-1])*(self.zeta_H_n[1:-1,1:-1] - self.zeta_H_n[:-2,2:]))
+        
 
         # pad with zero values on boundaries
         self.adv_n = np.pad(self.adv_n,((1,1)),constant_values=0)
@@ -1137,6 +1151,7 @@ class Barotropic:
 
         C6 = 4/(h[1:-1,1:-1]*self.d**2)
         C6 = np.pad(C6,((1,1)),constant_values=1)
+
 
     
         # create matrix to solve for psibar
@@ -1559,9 +1574,9 @@ tau_0 = 0
 rho_0 = 1025
 # TIME STEPPING
 dt = 900
-Nt = 100
-dumpFreq = 900
-meanDumpFreq = 9000
+Nt = 9600*30
+dumpFreq =  86400
+meanDumpFreq = 864000
 diagnostics = ['xi_u','xi_v','u_u','v_v','xi_xi']
 
 bathy_random = np.load('./../barotropic_model_analysis/model_data/FDT_MOUNT_50km_f/randomTopography_50km_new.npy')
@@ -1583,7 +1598,7 @@ domain.xi_from_psi()
 
 #%%
 
-data_1 = domain.model(dt=dt,\
+data = domain.model(dt=dt,\
     Nt=Nt,\
         r_BD=r_BD,\
             mu_xi_L=mu_xi_L,\
@@ -1621,129 +1636,99 @@ data_1 = domain.model(dt=dt,\
 
 
 # %%
-'''def u_YCXC(u):
-    # regrids u from YCXG to YCXC
-    u = np.array(u)
-    u_YCXC = (u[:,:,1:] + u[:,:,:-1])/2
-    return u_YCXC
 
-def v_YCXC(v):
-    # regrids v from YGXC to YCXC
-    v = np.array(v)
-    v_YCXC = (v[:,1:,:] + v[:,:-1,:])/2
-    return v_YCXC
+'''import sys
+sys.path.insert(0,'./../barotropic_model_analysis/analysis/functions')
+from derivatives import *
+from integrals import *
+from regrid import *
 
-#%%
-data = data_1
-
-
-# %%
 KE = (u_YCXC(data.u_u) + v_YCXC(data.v_v))/2
-# %%
 
-def vol_int_YCXC(var,h,dx,dy):
-
-    var = np.array(var)
-    h = np.array(h)
-    h_YCXC = (h[1:,1:] + h[1:,:-1] + h[:-1,1:] + h[:-1,:-1])/4
-
-    # calculate the volume integral of variable=var
-    # NOTE: var is defined on the YG,XG points. 
-    var_intZ = var*h_YCXC
-    
-    var_intXYZ = var_intZ*dx*dy
-    var_intXYZ = np.nansum(var_intXYZ,axis=0)
-    var_intXYZ = np.nansum(var_intXYZ,axis=0)
-
-    return var_intXYZ
-
-def basin_volume_YCXC(data):
-
-    bathy = np.array(data.bathy)
-
-    h_YCXC = (bathy[:-1,:-1] + bathy[1:,:-1] + bathy[:-1,1:] + bathy[1:,1:])/4
-    dx = data.dx
-    dy = data.dy
-
-    intXY = np.sum(h_YCXC*dx*dy)
-
-    return intXY
-# %%
-volume = basin_volume_YCXC(data)
 KE_volAvg = np.zeros(len(KE))
-K_volAvg = np.zeros(len(data.K))
+
+volume = basin_volume_YCXC(data)
 
 for t in range(len(KE)):
     KE_volAvg[t] = vol_int_YCXC(var=KE[t],dx=data.dx,dy=data.dy,h=data.bathy)/volume
-    K_volAvg[t] = vol_int_YCXC(var=data.K[t],dx=data.dx,dy=data.dy,h=data.bathy)/volume
 # %%
-plt.plot(np.arange(len(KE)),KE_volAvg,label='MKE')
-plt.plot(np.arange(len(KE)),K_volAvg,label='EKE')
-plt.plot(np.arange(len(KE)),KE_volAvg+K_volAvg,label='TKE')
-plt.legend()
+plt.plot(np.arange(1,len(KE_volAvg)),KE_volAvg[1:])
+
+
+# %%
+t = 620
+plt.contour(domain.XG,domain.YG,domain.xibar[t])
+plt.colorbar()
 plt.show()
 # %%
-plt.plot(np.arange(len(domain.KE_backscatter)),-domain.KE_backscatter)
-plt.show()
+import matplotlib.animation as anim
+from matplotlib.animation import FuncAnimation
+from IPython import display
+import matplotlib.colors as colors
+import matplotlib.cm as cm
+plt.rcParams['animation.ffmpeg_path'] = '/Users/eavesr/opt/anaconda3/envs/mitgcm_env/bin/ffmpeg'
 
+import matplotlib
+matplotlib.rcParams['animation.embed_limit'] = 2**128
 # %%
-energyConv_volAvg = np.zeros(len(data.energyConv))
-for t in range(len(data.energyConv)):
-    energyConv_volAvg[t] = vol_int_YCXC(var=data.energyConv[t],dx=data.dx,dy=data.dy,h=data.bathy)/volume
+def plot_animate(t,fig,data,psi,xi,levels_psi,levels_xi):
 
-# %%
-plt.plot(np.arange(len(energyConv_volAvg)),-energyConv_volAvg)
-# %%
-print(domain.KE_backscatter)
-# %%
-backscatter_int = np.zeros(len(domain.KE_backscatter))
+    axs[0].cla()
+    im_psi = axs[0].contour(data.XG/1000,data.YG/1000,psi[t]/1.E6,cmap='RdBu',levels=levels_psi,extend='both',norm=colors.TwoSlopeNorm(vmin=levels_psi[0],vmax=levels_psi[-1],vcenter=0),linewidths=2.5)
+    axs[0].set_aspect(1)
+    axs[0].contour(data.XG/1000,data.YG/1000,np.array(data.f)/np.array(data.bathy),colors='grey',linewidths=0.5)
 
-for t in range(len(backscatter_int)):
-    backscatter_int[t] = -np.sum(domain.KE_backscatter[:t])*86400*volume
+    axs[1].cla()
+    im_psi = axs[1].contourf(data.XG/1000,data.YG/1000,xi[t],cmap='RdBu',levels=levels_xi,extend='both',norm=colors.Normalize(vmin=levels_xi[0],vmax=levels_xi[-1]))
+    axs[1].set_aspect(1)
+    axs[1].contour(data.XG/1000,data.YG/1000,np.array(data.f)/np.array(data.bathy),colors='grey',linewidths=0.5)
 
-plt.plot(np.arange(len(backscatter_int)),backscatter_int)
-plt.show()
+    axs[0].set_xlabel('x (km)')
+    axs[1].set_xlabel('x (km)')
+    axs[0].set_ylabel('y (km)')
+    axs[1].set_ylabel('y (km)')
+    
+    fig.suptitle(str(t) + ' Days')
 # %%
-print(1.7E-4*volume)
 
-# %%
-print(KE_volAvg[0]-KE_volAvg[-1])
-# %%
-print(domain.KE_backscatter_sum)
-# %%
-TKE = KE_volAvg + K_volAvg
-print(TKE[-1] - TKE[0])
-# %%
-print(np.sum(domain.KE_backscatter[:500])*86400)
+fig,axs = plt.subplots(1,2)
+fig.set_size_inches(10,5)
 
-# %%
-print(backscatter_int[500])
-# %%
-print(K_volAvg[0]-K_volAvg[-1])
+axs[0].set_xlabel('x (km)')
+axs[1].set_xlabel('x (km)')
+axs[0].set_ylabel('y (km)')
+axs[1].set_ylabel('y (km)')
 
-# %%
-print(TKE[0])
-print(TKE[-1])'''
-# %%
-'''areas = domain.dx*domain.dy*np.ones((domain.Ny-1,domain.Nx-1))
-areas = np.pad(areas,((1,1)),constant_values=domain.dx*domain.dy/2)
-areas[0][0] = domain.dx*domain.dy/4
-areas[0][-1] = domain.dx*domain.dy/4
-areas[-1][0] = domain.dx*domain.dy/4
-areas[-1][-1] = domain.dx*domain.dy/4
-print(np.shape(areas))
+ts = np.arange(3001).astype(int)
 
-print(areas)
+xi_min = np.nanquantile(data.xibar,0.01)
+xi_max = np.nanquantile(data.xibar,0.99)
+xi_lim = max(np.abs(xi_min),xi_max)
 
-#%%
-integral = np.zeros(len(domain.energyCheck))
+psi_min = np.nanmin(data.psibar/1.E6)
+psi_max = np.nanmax(data.psibar/1.E6)
+psi_lim = max(np.abs(psi_min),psi_max)
 
-for t in range(len(integral)):
-    integral[t] = np.nansum(domain.energyCheck[t]*areas)
-# %%
-plt.plot(np.arange(101),integral)
-# %%
-for t in range(len(integral)):
-    if integral[t] != 0:
-        print(t)'''
+levels_xi = np.linspace(-xi_lim,xi_lim,20)
+levels_psi = np.linspace(-psi_lim,psi_lim,20)
+
+plt.tight_layout()
+
+cbar_xi = fig.colorbar(cm.ScalarMappable(norm=colors.TwoSlopeNorm(vmin=levels_xi[0],vmax=levels_xi[-1],vcenter=0),\
+                                          cmap='RdBu'),ax=axs[1])
+
+cbar_xi.set_label('$\\xi (s^{-1})$')
+
+
+cbar_psi = fig.colorbar(cm.ScalarMappable(norm=colors.TwoSlopeNorm(vmin=levels_psi[0],vmax=levels_psi[-1],vcenter=0),\
+                                         cmap='RdBu'),ax=axs[0])
+cbar_psi.set_label('$\psi$ (Sv)')
+
+
+animation = FuncAnimation(fig, func=plot_animate, frames=ts, interval=100,fargs=[fig,data,data.psibar,data.xibar,levels_psi,levels_xi],repeat=False)
+
+video = animation.to_html5_video()
+html = display.HTML(video)
+display.display(html)
+plt.close()'''
 # %%
