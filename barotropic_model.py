@@ -494,11 +494,12 @@ class Barotropic:
                     self.energyConv_sum = np.zeros((self.NyC,self.NxC))
                     self.energyConv_MEAN = np.zeros((len_T_MEAN,self.NyC,self.NxC),dtype=object)
 
+                    # backscatter variables
                     self.volume_YCXC = np.sum(self.bathy_YCXC*self.dx*self.dy)
-                    print(self.volume_YCXC)
                     self.KE_backscatter = np.zeros(len_T+1)
                     self.KE_backscatter_n = 0
                     self.KE_backscatter_sum = 0
+                    self.KE_backscatter_MEAN = np.zeros(len_T_MEAN)
 
                 
             else:
@@ -595,6 +596,7 @@ class Barotropic:
                             self.enstrophyGen[self.index] = self.enstrophyGen_n 
                             self.energyConv[self.index] = self.energyConv_n
                             self.eddyFluxes[self.index] = self.eddyFluxes_n
+                            self.KE_backscatter[self.index] = self.KE_backscatter_n
 
                     # DUMP MEAN DATA
                     if kw.get('t')%kw.get('meanDumpFreq') == 0:
@@ -618,12 +620,14 @@ class Barotropic:
                             self.enstrophyGen_MEAN[self.index_MEAN] = (self.enstrophyGen_sum*self.dt)/self.meanDumpFreq
                             self.energyConv_MEAN[self.index_MEAN] = (self.energyConv_sum*self.dt)/self.meanDumpFreq
                             self.kappa_MEAN[self.index_MEAN] = (self.kappa_sum*self.dt)/self.meanDumpFreq
+                            self.KE_backscatter_MEAN[self.index_MEAN] = (self.KE_backscatter_sum*self.dt)/self.meanDumpFreq
 
                             self.Q_sum = np.zeros_like(self.Q_sum)
                             self.K_sum = np.zeros_like(self.K_sum)
                             self.enstrophyGen_sum = np.zeros_like(self.enstrophyGen_sum)
                             self.energyConv_sum = np.zeros_like(self.energyConv_sum)
                             self.kappa_sum = np.zeros_like(self.kappa_sum)
+                            self.KE_backscatter_sum = 0
 
 
 
@@ -998,6 +1002,22 @@ class Barotropic:
                         'T': self.T,
                         'YG': self.YG,
                         'XG': self.XG
+                    }
+                )
+
+                dataset_return['KE_backscatter'] = xr.DataArray(
+                    self.KE_backscatter.astype('float64'),
+                    dims=['T'],
+                    coords = {
+                        'T': self.T
+                    }
+                )
+
+                dataset_return['KE_backscatter_MEAN'] = xr.DataArray(
+                    self.KE_backscatter_MEAN.astype('float64'),
+                    dims = ['T_MEAN'],
+                    coords = {
+                        'T_MEAN': self.T_MEAN
                     }
                 )
 
@@ -1393,9 +1413,9 @@ class Barotropic:
         # parameterized terms 
         self.qbar_n = np.array((self.f + self.xibar_n)/self.bathy_np) # YGXG
         self.qbar_dx_n = (self.qbar_n[1:,1:] + self.qbar_n[:-1,1:] - self.qbar_n[1:,:-1] - self.qbar_n[:-1,:-1])/(2*self.dx) # YCXC
-        self.qbar_dy_n = (self.qbar_n[1:,1:] + self.qbar_n[1:,:-1] - self.qbar_n[:-1,1:] - self.qbar_n[:-1,:-1])/(2*self.dx) # YCXC
+        self.qbar_dy_n = (self.qbar_n[1:,1:] + self.qbar_n[1:,:-1] - self.qbar_n[:-1,1:] - self.qbar_n[:-1,:-1])/(2*self.dy) # YCXC
         self.psi_dx_n = (self.psibar_n[1:,1:] + self.psibar_n[:-1,1:] - self.psibar_n[1:,:-1] - self.psibar_n[:-1,:-1])/(2*self.dx) # YCXC
-        self.psi_dy_n = (self.psibar_n[1:,1:] + self.psibar_n[1:,:-1] - self.psibar_n[:-1,1:] - self.psibar_n[:-1,:-1])/(2*self.dx) # YCXC
+        self.psi_dy_n = (self.psibar_n[1:,1:] + self.psibar_n[1:,:-1] - self.psibar_n[:-1,1:] - self.psibar_n[:-1,:-1])/(2*self.dy) # YCXC
 
         self.mod_grad_qbar_n = np.sqrt(self.qbar_dx_n**2 + self.qbar_dy_n**2) # YCXC
         # set minimum value on mod_grad_qbar
