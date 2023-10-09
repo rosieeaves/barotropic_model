@@ -15,3 +15,5 @@ slurm*
 model_run_files/*
 analysis/*
 *.pyc
+.DS_Store
+__pycache__
