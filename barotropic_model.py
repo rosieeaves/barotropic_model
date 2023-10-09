@@ -1432,7 +1432,7 @@ class Barotropic:
             print('Full scheme. Includes EKE backscatter term.')
             self.schemeFunctionsDict = {
                 'calc_K_Q': self.K_Q_EGECAD_Backscatter, 
-                'calc_eddyFluxes': self.eddyFluxes_scheme_new
+                'calc_eddyFluxes': self.eddyFluxes_scheme
             }
         else:
             print('No scheme.')
@@ -1486,7 +1486,7 @@ class Barotropic:
 
         
 
-    def EGEC_new(self):
+    def EGEC(self):
         # NOTE: we use the values at time step n here to calculate dQ/dt_n and dK/dt_n so that we can claculate Q_np1 and K_np1
 
         # interpolate Lambda and K to YGXC and YCXG points. do not calculate at boundaries. 
@@ -1542,86 +1542,10 @@ class Barotropic:
         self.enstrophyGen_sum += self.enstrophyGen_n 
         self.energyConv_sum += self.energyConv_n
 
-        '''self.qbar_n = np.array((self.f + self.xibar_n)/self.bathy_np) # YGXG
-        self.psi_dx_n = (self.psibar_n[1:,1:] + self.psibar_n[:-1,1:] - self.psibar_n[1:,:-1] - self.psibar_n[:-1,:-1])/(2*self.dx) # YCXC
-        self.psi_dy_n = (self.psibar_n[1:,1:] + self.psibar_n[1:,:-1] - self.psibar_n[:-1,1:] - self.psibar_n[:-1,:-1])/(2*self.dy) # YCXC
-        self.qbar_dx_n = (self.qbar_n[1:,1:] + self.qbar_n[:-1,1:] - self.qbar_n[1:,:-1] - self.qbar_n[:-1,:-1])/(2*self.dx) # YCXC
-        self.qbar_dy_n = (self.qbar_n[1:,1:] + self.qbar_n[1:,:-1] - self.qbar_n[:-1,1:] - self.qbar_n[:-1,:-1])/(2*self.dy) # YCXC
-        self.mod_grad_qbar_n = np.sqrt(self.qbar_dx_n**2 + self.qbar_dy_n**2) # YCXC
-        # set minimum value on mod_grad_qbar
-        self.mod_grad_qbar_n = np.where(self.mod_grad_qbar_n < self.min_val, self.min_val*np.ones_like(self.mod_grad_qbar_n), self.mod_grad_qbar_n) # YCXC
-
-        self.kappa_n = (2*self.gamma_q*np.sqrt(self.Q_n*self.K_n))/self.mod_grad_qbar_n # YCXC
-        # set maximum value on kappa_n
-        self.kappa_n = np.where(self.kappa_n > self.max_val, self.max_val*np.ones_like(self.kappa_n),self.kappa_n) # YCXC
-
-        self.energyConv_n = -self.kappa_n*(self.qbar_dx_n*self.psi_dx_n + self.qbar_dy_n*self.psi_dy_n) # YCXC
-
-        plt.contourf(self.XC,self.YC,self.energyConv_n)
-        plt.colorbar()
-        plt.title('Energy Conv')
-        plt.show()
-        
-        # calc enstrophy generation
-
-        self.qbar_dx_n_YGXC = (self.qbar_n[:,1:] - self.qbar_n[:,:-1])/self.dx # YGXC
-        self.qbar_dy_n_YCXG = (self.qbar_n[1:,:] - self.qbar_n[:-1,:])/self.dy # YCXG
-
-        self.kappa_n_YGXC = np.pad((self.kappa_n[1:,:] + self.kappa_n[:-1,:])/2,((1,1),(0,0)),constant_values=0) # YGXC
-        self.kappa_n_YCXG = np.pad((self.kappa_n[:,1:] + self.kappa_n[:,:-1])/2,((0,0),(1,1)),constant_values=0) # YCXG
-
-        self.qu_EDDY = -self.kappa_n_YGXC*self.qbar_dx_n_YGXC # YGXC
-        self.qv_EDDY = -self.kappa_n_YCXG*self.qbar_dy_n_YCXG # YCXG
-
-        self.enstrophyGen_x = self.qu_EDDY*self.qbar_dx_n_YGXC # YGXC
-        self.enstrophyGen_y = self.qv_EDDY*self.qbar_dy_n_YCXG # YCXG
-
-        self.enstrophyGen_n = (self.enstrophyGen_x[1:,:] + self.enstrophyGen_x[:-1,:] + self.enstrophyGen_y[:,1:] + self.enstrophyGen_y[:,:-1])/2 # YCXC 
-        plt.contourf(self.XC,self.YC,self.enstrophyGen_n)
-        plt.colorbar()
-        plt.title('Enstrophy Gen')
-        plt.show()
-
-        # add to sum variables
-        self.enstrophyGen_sum = self.enstrophyGen_sum + self.enstrophyGen_n
-        self.energyConv_sum  = self.energyConv_sum + self.energyConv_n
-        self.kappa_sum = self.kappa_sum + self.kappa_n'''
-
-
-
-
-
-
-
-    def EGEC(self): 
-
-        # NOTE: we use the values at time step n here to calculate dQ/dt_n and dK/dt_n so that we can claculate Q_np1 and K_np1
-        # parameterized terms 
-        self.qbar_n = np.array((self.f + self.xibar_n)/self.bathy_np) # YGXG
-        self.qbar_dx_n = (self.qbar_n[1:,1:] + self.qbar_n[:-1,1:] - self.qbar_n[1:,:-1] - self.qbar_n[:-1,:-1])/(2*self.dx) # YCXC
-        self.qbar_dy_n = (self.qbar_n[1:,1:] + self.qbar_n[1:,:-1] - self.qbar_n[:-1,1:] - self.qbar_n[:-1,:-1])/(2*self.dy) # YCXC
-        self.psi_dx_n = (self.psibar_n[1:,1:] + self.psibar_n[:-1,1:] - self.psibar_n[1:,:-1] - self.psibar_n[:-1,:-1])/(2*self.dx) # YCXC
-        self.psi_dy_n = (self.psibar_n[1:,1:] + self.psibar_n[1:,:-1] - self.psibar_n[:-1,1:] - self.psibar_n[:-1,:-1])/(2*self.dy) # YCXC
-
-        self.mod_grad_qbar_n = np.sqrt(self.qbar_dx_n**2 + self.qbar_dy_n**2) # YCXC
-        # set minimum value on mod_grad_qbar
-        self.mod_grad_qbar_n = np.where(self.mod_grad_qbar_n < self.min_val, self.min_val*np.ones_like(self.mod_grad_qbar_n), self.mod_grad_qbar_n) # YCXC
-
-        self.kappa_n = (2*self.gamma_q*np.sqrt(self.Q_n*self.K_n))/self.mod_grad_qbar_n # YCXC
-        # set maximum value on kappa_n
-        self.kappa_n = np.where(self.kappa_n > self.max_val, self.max_val*np.ones_like(self.kappa_n),self.kappa_n) # YCXC
-        self.kappa_sum = self.kappa_sum + self.kappa_n
-
-        self.enstrophyGen_n = -self.kappa_n*(self.qbar_dx_n**2 + self.qbar_dy_n**2) # YCXC
-        self.energyConv_n = -self.kappa_n*(self.qbar_dx_n*self.psi_dx_n + self.qbar_dy_n*self.psi_dy_n) # YCXC
-        
-        # add to sum variables
-        self.enstrophyGen_sum = self.enstrophyGen_sum + self.enstrophyGen_n
-        self.energyConv_sum  = self.energyConv_sum + self.energyConv_n
 
     def K_Q_EGEC(self,scheme):
 
-        self.EGEC_new()
+        self.EGEC()
 
         # diffuse enstrophy
         # add ghost points of edge values to ensure no flux through boundaries 
@@ -1693,7 +1617,7 @@ class Barotropic:
 
     def K_Q_EGECAD_Backscatter(self,scheme):
         
-        self.EGEC_new()
+        self.EGEC()
 
         # advect enstrophy and energy
         self.advection_YCXC(var=self.Q_n,var_return='QAdv_n')
@@ -1742,17 +1666,6 @@ class Barotropic:
         self.Q_np1 = np.zeros_like(self.Q_n) 
 
     def eddyFluxes_scheme(self):
-        # ZETA fluxes
-        self.flux_u_n = np.array((-self.kappa_n*self.bathy_YCXC*self.qbar_dx_n)) # YCXC
-        self.flux_v_n = np.array((-self.kappa_n*self.bathy_YCXC*self.qbar_dy_n)) # YCXC
-
-
-        self.eddyFluxes_n = (1/(2*self.d))*(self.flux_v_n[1:,1:] + self.flux_v_n[1:,:-1] - self.flux_v_n[:-1,1:] - self.flux_v_n[:-1,:-1] + \
-                                            self.flux_u_n[1:,1:] + self.flux_u_n[:-1,1:] - self.flux_u_n[1:,:-1] - self.flux_u_n[:-1,:-1])
-        
-        self.eddyFluxes_n = np.pad(self.eddyFluxes_n,((1,1)),constant_values=0)
-
-    def eddyFluxes_scheme_new(self):
 
         self.eddyFluxes_n = (1/self.d)*(self.bathy_YCXG[1:,1:-1]*self.qv_EDDY_n_YCXG[1:,1:-1] + self.bathy_YGXC[1:-1,1:]*self.qu_EDDY_n_YGXC[1:-1,1:] - \
                                         self.bathy_YCXG[:-1,1:-1]*self.qv_EDDY_n_YCXG[:-1,1:-1] - self.bathy_YGXC[1:-1,:-1]*self.qu_EDDY_n_YGXC[1:-1,:-1])
@@ -1776,7 +1689,7 @@ class Barotropic:
 
 
 
-#%%
+#%
 
 '''d = 50000 # m
 Nx = 20
@@ -1824,7 +1737,7 @@ print(np.shape(init_Q))
 init_psi = np.zeros((Ny+1,Nx+1))
 #init_psi = np.load('./../barotropic_model_analysis/model_data/FDT_MOUNT_50km_f/initPsi_50km.npy')
 domain.init_psi(init_psi)
-domain.xi_from_psi()'''
+domain.xi_from_psi()
 
 
 #%%
@@ -1840,7 +1753,7 @@ domain.xi_from_psi()'''
                                 meanDumpFreq=meanDumpFreq,\
                                     diags=diagnostics)'''
 
-'''data = domain.model(dt=dt,\
+data = domain.model(dt=dt,\
     Nt=Nt,\
         dumpFreq=dumpFreq,\
             meanDumpFreq=meanDumpFreq,\
@@ -1849,7 +1762,7 @@ domain.xi_from_psi()'''
                         mu_xi_B=mu_xi_B,\
                             tau_0=tau_0,\
                                 rho_0=rho_0,\
-                                    eddy_scheme='EGECAD_backscatter',\
+                                    eddy_scheme='EGECAD',\
                                         init_K=init_K,\
                                             init_Q=init_Q,\
                                                 gamma_q=gamma_q,\
@@ -1861,7 +1774,7 @@ domain.xi_from_psi()'''
                                                                         min_val=min_val,\
                                                                             max_val = max_val,\
                                                                                 backscatter_frac=1.,\
-                                                                                    diags=diagnostics)'''
+                                                                                    diags=diagnostics)
 
 
 
