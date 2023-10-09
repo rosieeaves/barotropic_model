@@ -478,15 +478,13 @@ class Barotropic:
                     self.psibar_dx_n_YGXC = np.zeros((self.NyG,self.NxC))
                     self.psibar_dy_n_YCXG = np.zeros((self.NyC,self.NxG))
 
-                    #self.mod_grad_qbar = np.zeros((len_T+1,self.NyC,self.NxC),dtype=object)
+                    self.mod_grad_qbar_n_YCXC = np.zeros((len_T+1,self.NyC,self.NxC),dtype=object)
                     self.kappa = np.zeros((len_T+1,self.NyC,self.NxC),dtype=object)
-                    #self.qbar_dx = np.zeros((len_T+1,self.NyC,self.NxC),dtype=object)
-                    #self.qbar_dy = np.zeros((len_T+1,self.NyC,self.NxC),dtype=object)
+                    self.qbar_dx_YCXC = np.zeros((len_T+1,self.NyC,self.NxC),dtype=object)
+                    self.qbar_dy_YCXC = np.zeros((len_T+1,self.NyC,self.NxC),dtype=object)
                     self.Q_min_array = self.Q_min*np.ones((self.NyC,self.NxC))
                     self.K_min_array = self.K_min*np.ones((self.NyC,self.NxC))
 
-                    #self.flux_u_n = np.zeros((self.NyC,self.NxC))
-                    #self.flux_v_n = np.zeros((self.NyC,self.NxC))
                     self.qu_EDDY_n_YGXC = np.zeros((self.NyG,self.NxC))
                     self.qv_EDDY_n_YCXG = np.zeros((self.NyC,self.NxG))
                     self.eddyFluxes = np.zeros((len_T+1,self.NyG,self.NxG),dtype=object)
@@ -1536,6 +1534,12 @@ class Barotropic:
         self.energyConv_n_y_YCXG = -self.kappa_n_YCXG*self.qbar_dy_n_YCXG*self.psibar_dy_n_YCXG # YCXG
         # calculate energy conversion at YCXC points 
         self.energyConv_n = (self.energyConv_n_x_YGXC[1:,:] + self.energyConv_n_x_YGXC[:-1,:] + self.energyConv_n_y_YCXG[:,1:] + self.energyConv_n_y_YCXG[:,:-1])/2
+
+        # calculate kappa_n at YCXC points 
+        self.qbar_dx_n_YCXC = (self.qbar_n[1:,1:] + self.qbar_n[:-1,1:] - self.qbar_n[1:,:-1] - self.qbar_n[:-1,:-1])/(2*self.dx) # YCXC
+        self.qbar_dy_n_YCXC = (self.qbar_n[1:,1:] + self.qbar_n[1:,:-1] - self.qbar_n[:-1,1:] - self.qbar_n[:-1,:-1])/(2*self.dy) # YCXC
+        self.mod_grad_qbar_n_YCXC = np.sqrt(self.qbar_dx_n_YCXC**2 + self.qbar_dy_n_YCXC**2) # YCXC
+        self.kappa_n = 2*self.gamma_q*np.sqrt(self.Q_n*self.K_n)/self.mod_grad_qbar_n_YCXC # YCXC
 
         # sum variables
         self.kappa_sum += self.kappa_n
