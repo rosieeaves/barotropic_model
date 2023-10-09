@@ -1737,7 +1737,7 @@ print(np.shape(init_Q))
 init_psi = np.zeros((Ny+1,Nx+1))
 #init_psi = np.load('./../barotropic_model_analysis/model_data/FDT_MOUNT_50km_f/initPsi_50km.npy')
 domain.init_psi(init_psi)
-domain.xi_from_psi()
+domain.xi_from_psi()'''
 
 
 #%%
@@ -1753,7 +1753,7 @@ domain.xi_from_psi()
                                 meanDumpFreq=meanDumpFreq,\
                                     diags=diagnostics)'''
 
-data = domain.model(dt=dt,\
+'''data = domain.model(dt=dt,\
     Nt=Nt,\
         dumpFreq=dumpFreq,\
             meanDumpFreq=meanDumpFreq,\
@@ -1774,7 +1774,7 @@ data = domain.model(dt=dt,\
                                                                         min_val=min_val,\
                                                                             max_val = max_val,\
                                                                                 backscatter_frac=1.,\
-                                                                                    diags=diagnostics)
+                                                                                    diags=diagnostics)'''
 
 
 
