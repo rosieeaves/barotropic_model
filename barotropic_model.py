@@ -540,14 +540,8 @@ class Barotropic:
                     # dissiaption from bottom drag
                     self.BD_n = self.r_BD*self.xibar_n
                     # diffusion of vorticity
-                    #self.laplacian(var=self.xibar_n,mu=self.mu_xi_L,var_return='diffusion_L_n')
-                    #self.biharmonic(var=self.xibar_n,mu=self.mu_xi_B,var_return='diffusion_B_n')
-
-                    self.q_n = np.array((self.f + self.xibar_n)/self.bathy)
-                    self.q_n_pad = np.pad(self.q_n,((1,1)),mode='edge')
-                    self.div2q_n = self.diffusion(var=self.q_n_pad)[1:-1,1:-1]
-                    self.Hdiv2q_n = np.array(self.bathy*self.div2q_n)
-                    self.diffusion_B_n = self.mu_xi_B*self.diffusion(var=self.Hdiv2q_n)
+                    self.laplacian(var=self.xibar_n,mu=self.mu_xi_L,var_return='diffusion_L_n')
+                    self.biharmonic(var=self.xibar_n,mu=self.mu_xi_B,var_return='diffusion_B_n')
 
                     # eddy fluxes
                     self.schemeFunctionsDict['calc_K_Q'](scheme=scheme)
@@ -595,19 +589,6 @@ class Barotropic:
                         self.ubar[self.index] = self.ubar_np1
                         self.vbar[self.index] = self.vbar_np1
 
-                        # variables for enstrophy issue 
-                        # delete once problem solved
-                        self.energyCheck[self.index-1] = self.psibar_n*self.adv_n
-                        self.div2q[self.index-1] = self.div2q_n
-                        self.biharm_term[self.index-1] = self.diffusion_B_n
-                        self.advection[self.index-1] = self.adv_n
-                        self.q_biharm[self.index-1] = self.q_n*self.diffusion_B_n 
-                        self.psi_biharm[self.index-1] = self.psibar_n*self.diffusion_B_n
-                        self.Q_diffusion[self.index-1] = self.QDiff_L_n
-                        self.K_diffusion[self.index-1] = self.KDiff_L_n 
-                        self.Q_damping[self.index-1] = (self.Q_n - self.Q_min_array)*self.r_Q
-                        self.K_damping[self.index-1] = (self.K_n - self.K_min_array)*self.r_K
-
                         # run diagnostics 
                         for var in diags:
                             # set snapshot data variable, e.g. self.xi_u, to append(old snapshot data, np1 value), e.g. append self.xi_u with self.xi_u_np1
@@ -626,6 +607,19 @@ class Barotropic:
                             self.energyConv[self.index] = self.energyConv_n
                             self.eddyFluxes[self.index] = self.eddyFluxes_n
                             self.KE_backscatter[self.index] = self.KE_backscatter_n
+
+                            # variables for enstrophy issue 
+                            # delete once problem solved
+                            self.energyCheck[self.index-1] = self.psibar_n*self.adv_n
+                            self.div2q[self.index-1] = self.div2q_n
+                            self.biharm_term[self.index-1] = self.diffusion_B_n
+                            self.advection[self.index-1] = self.adv_n
+                            self.q_biharm[self.index-1] = self.q_n*self.diffusion_B_n 
+                            self.psi_biharm[self.index-1] = self.psibar_n*self.diffusion_B_n
+                            self.Q_diffusion[self.index-1] = self.QDiff_L_n
+                            self.K_diffusion[self.index-1] = self.KDiff_L_n 
+                            self.Q_damping[self.index-1] = (self.Q_n - self.Q_min_array)*self.r_Q
+                            self.K_damping[self.index-1] = (self.K_n - self.K_min_array)*self.r_K
 
                     # DUMP MEAN DATA
                     if kw.get('t')%kw.get('meanDumpFreq') == 0:
@@ -1693,7 +1687,7 @@ class Barotropic:
 
 
 
-#%
+#%%
 
 '''d = 50000 # m
 Nx = 20
@@ -1721,7 +1715,7 @@ tau_0 = 0
 rho_0 = 1025
 # TIME STEPPING
 dt = 900
-Nt = 100
+Nt = 10
 dumpFreq =  900
 meanDumpFreq = 9000
 diagnostics = ['xi_u','xi_v','u_u','v_v','xi_xi','q','q_q']
@@ -1729,24 +1723,24 @@ diagnostics = ['xi_u','xi_v','u_u','v_v','xi_xi','q','q_q']
 bathy_random = np.load('./../barotropic_model_analysis/model_data/FDT_MOUNT_50km_f/randomTopography_50km_new.npy')
 #bathy_flat = 500*np.ones((Ny+1,Nx+1))
 
-domain = Barotropic(d=d,Nx=Nx,Ny=Ny,bathy=bathy_random,f0=f0,beta=beta)
+domain = Barotropic(d=d,Nx=Nx,Ny=Ny,bathy=bathy_random,f0=f0,beta=beta)'''
 
 
 #%%
 
-init_K = 1.5E-4*np.ones((Ny,Nx))
+'''init_K = 1.5E-4*np.ones((Ny,Nx))
 init_Q = 1.E-20*np.ones((Ny,Nx))
-print(np.shape(init_Q))
+print(np.shape(init_Q))'''
 
-init_psi = np.zeros((Ny+1,Nx+1))
+'''init_psi = np.zeros((Ny+1,Nx+1))
 #init_psi = np.load('./../barotropic_model_analysis/model_data/FDT_MOUNT_50km_f/initPsi_50km.npy')
 domain.init_psi(init_psi)
-domain.xi_from_psi()'''
+domain.xi_from_psi()
 
 
 #%%
 
-'''data = domain.model(dt=dt,\
+data = domain.model(dt=dt,\
     Nt=Nt,\
         r_BD=r_BD,\
             mu_xi_L=mu_xi_L,\
@@ -1780,6 +1774,11 @@ domain.xi_from_psi()'''
                                                                                 backscatter_frac=1.,\
                                                                                     diags=diagnostics)'''
 
+#%%
+'''t = 10
+plt.contourf(data.XG,data.YG,data.psi[t])
+plt.colorbar()
+plt.show()'''
 
 
 
