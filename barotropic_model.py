@@ -372,7 +372,6 @@ class Barotropic:
 
             # parameters for checking enstrophy issue 
             # delete once issue is solved
-            self.div2q = np.zeros((len_T+1,self.NyG,self.NxG))
             self.biharm_term = np.zeros((len_T+1,self.NyG,self.NxG))
             self.advection = np.zeros((len_T+1,self.NyG,self.NxG))
             self.q_biharm = np.zeros((len_T+1,self.NyG,self.NxG))
@@ -599,10 +598,7 @@ class Barotropic:
 
                             self.Q[self.index] = self.Q_np1
                             self.K[self.index] = self.K_np1
-                            #self.mod_grad_qbar[self.index] = self.mod_grad_qbar_n
                             self.kappa[self.index] = self.kappa_n
-                            #self.qbar_dx[self.index] = self.qbar_dx_n
-                            #self.qbar_dy[self.index] = self.qbar_dy_n
                             self.enstrophyGen[self.index] = self.enstrophyGen_n 
                             self.energyConv[self.index] = self.energyConv_n
                             self.eddyFluxes[self.index] = self.eddyFluxes_n
@@ -611,10 +607,9 @@ class Barotropic:
                             # variables for enstrophy issue 
                             # delete once problem solved
                             self.energyCheck[self.index-1] = self.psibar_n*self.adv_n
-                            self.div2q[self.index-1] = self.div2q_n
                             self.biharm_term[self.index-1] = self.diffusion_B_n
                             self.advection[self.index-1] = self.adv_n
-                            self.q_biharm[self.index-1] = self.q_n*self.diffusion_B_n 
+                            self.q_biharm[self.index-1] = self.qbar_n*self.diffusion_B_n 
                             self.psi_biharm[self.index-1] = self.psibar_n*self.diffusion_B_n
                             self.Q_diffusion[self.index-1] = self.QDiff_L_n
                             self.K_diffusion[self.index-1] = self.KDiff_L_n 
