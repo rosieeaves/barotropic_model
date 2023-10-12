@@ -539,8 +539,12 @@ class Barotropic:
                     # dissiaption from bottom drag
                     self.BD_n = self.r_BD*self.xibar_n
                     # diffusion of vorticity
-                    self.laplacian(var=self.xibar_n,mu=self.mu_xi_L,var_return='diffusion_L_n')
-                    self.biharmonic(var=self.xibar_n,mu=self.mu_xi_B,var_return='diffusion_B_n')
+                    #self.laplacian(var=self.xibar_n,mu=self.mu_xi_L,var_return='diffusion_L_n')
+                    #self.biharmonic(var=self.xibar_n,mu=self.mu_xi_B,var_return='diffusion_B_n')
+
+                    self.diff_xi = self.diffusion(var=self.xibar_n)
+                    self.diff_xi_pad = np.pad(self.diff_xi,((1,1)),mode='edge')
+                    self.diffusion_B_n = self.mu_xi_B*self.bathy_np*self.diffusion(self.diff_xi_pad)[1:-1,1:-1]
 
                     # eddy fluxes
                     self.schemeFunctionsDict['calc_K_Q'](scheme=scheme)
@@ -549,6 +553,7 @@ class Barotropic:
                     self.F_n = self.adv_n - self.eddyFluxes_n - self.BD_n + self.diffusion_L_n - self.diffusion_B_n + np.array(self.wind_stress)
                     # calculate new value of xibar
                     self.xibar_np1 = scheme(var_n=self.xibar_n,dt=self.dt,F_n=self.F_n,F_nm1=self.F_nm1,F_nm2=self.F_nm2)
+                    self.xibar_np1 = np.pad(self.xibar_np1[1:-1,1:-1],((1,1)),constant_values=0)
 
                     # uncomment for solid body rotation
                     # self.psibar_np1 = self.psibar_n
@@ -1770,7 +1775,7 @@ data = domain.model(dt=dt,\
                                                                                     diags=diagnostics)'''
 
 #%%
-'''t = 10
+'''t = 5
 plt.contourf(data.XG,data.YG,data.psi[t])
 plt.colorbar()
 plt.show()'''
