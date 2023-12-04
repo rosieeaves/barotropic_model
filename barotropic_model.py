@@ -380,6 +380,8 @@ class Barotropic:
             self.K_diffusion = np.zeros((len_T+1,self.NyC,self.NxC))
             self.Q_damping = np.zeros((len_T+1,self.NyC,self.NxC))
             self.K_damping = np.zeros((len_T+1,self.NyC,self.NxC))
+            self.Q_advection = np.zeros((len_T+1,self.NyC,self.NxC))
+            self.K_advection = np.zeros((len_T+1,self.NyC,self.NxC))
 
             # calculate wind stress
 
@@ -542,9 +544,10 @@ class Barotropic:
                     #self.laplacian(var=self.xibar_n,mu=self.mu_xi_L,var_return='diffusion_L_n')
                     #self.biharmonic(var=self.xibar_n,mu=self.mu_xi_B,var_return='diffusion_B_n')
 
-                    self.diff_xi = self.diffusion(var=self.xibar_n)
+                    self.xi_pad = np.pad(self.xibar_n,((1,1)),mode='edge')
+                    self.diff_xi = self.diffusion(var=self.xi_pad)[1:-1,1:-1]
                     self.diff_xi_pad = np.pad(self.diff_xi,((1,1)),mode='edge')
-                    self.diffusion_B_n = self.mu_xi_B*self.bathy_np*self.diffusion(self.diff_xi_pad)[1:-1,1:-1]
+                    self.diffusion_B_n = self.mu_xi_B*self.bathy_np*self.diffusion(var=self.diff_xi_pad)[1:-1,1:-1]
 
                     # eddy fluxes
                     self.schemeFunctionsDict['calc_K_Q'](scheme=scheme)
@@ -553,7 +556,8 @@ class Barotropic:
                     self.F_n = self.adv_n - self.eddyFluxes_n - self.BD_n + self.diffusion_L_n - self.diffusion_B_n + np.array(self.wind_stress)
                     # calculate new value of xibar
                     self.xibar_np1 = scheme(var_n=self.xibar_n,dt=self.dt,F_n=self.F_n,F_nm1=self.F_nm1,F_nm2=self.F_nm2)
-                    self.xibar_np1 = np.pad(self.xibar_np1[1:-1,1:-1],((1,1)),constant_values=0)
+                    # set xi to zero on boundaries
+                    #self.xibar_np1 = np.pad(self.xibar_np1[1:-1,1:-1],((1,1)),constant_values=0)
 
                     # uncomment for solid body rotation
                     # self.psibar_np1 = self.psibar_n
@@ -618,6 +622,8 @@ class Barotropic:
                             self.psi_biharm[self.index-1] = self.psibar_n*self.diffusion_B_n
                             self.Q_diffusion[self.index-1] = self.QDiff_L_n
                             self.K_diffusion[self.index-1] = self.KDiff_L_n 
+                            self.Q_advection[self.index-1] = self.QAdv_n
+                            self.K_advection[self.index-1] = self.KAdv_n
                             self.Q_damping[self.index-1] = (self.Q_n - self.Q_min_array)*self.r_Q
                             self.K_damping[self.index-1] = (self.K_n - self.K_min_array)*self.r_K
 
@@ -913,6 +919,26 @@ class Barotropic:
 
             dataset_return['K_diffusion'] = xr.DataArray(
                 self.K_diffusion.astype('float64'),
+                dims = ['T','YC','XC'],
+                coords = {
+                    'T': self.T,
+                    'YC': self.YC,
+                    'XC': self.XC
+                }
+            )
+
+            dataset_return['Q_advection'] = xr.DataArray(
+                self.Q_advection.astype('float64'),
+                dims = ['T','YC','XC'],
+                coords = {
+                    'T': self.T,
+                    'YC': self.YC,
+                    'XC': self.XC
+                }
+            )
+
+            dataset_return['K_advection'] = xr.DataArray(
+                self.K_advection.astype('float64'),
                 dims = ['T','YC','XC'],
                 coords = {
                     'T': self.T,
@@ -1482,10 +1508,10 @@ class Barotropic:
         # NOTE: we use the values at time step n here to calculate dQ/dt_n and dK/dt_n so that we can claculate Q_np1 and K_np1
 
         # interpolate Lambda and K to YGXC and YCXG points. do not calculate at boundaries. 
-        self.Q_n_YGXC = (self.Q_n[1:,:] + self.Q_n[:-1,:])/2 # YGXC
-        self.Q_n_YCXG = (self.Q_n[:,1:] + self.Q_n[:,:-1])/2 # YCXG
-        self.K_n_YGXC = (self.K_n[1:,:] + self.K_n[:-1,:])/2 # YGXC
-        self.K_n_YCXG = (self.K_n[:,1:] + self.K_n[:,:-1])/2 # YCXG
+        self.Q_n_YGXC = (self.Q_n[1:,:] + self.Q_n[:-1,:])/2 # YGXC [1:-1,:]
+        self.Q_n_YCXG = (self.Q_n[:,1:] + self.Q_n[:,:-1])/2 # YCXG [:,1:-1]
+        self.K_n_YGXC = (self.K_n[1:,:] + self.K_n[:-1,:])/2 # YGXC [1:-1,:]
+        self.K_n_YCXG = (self.K_n[:,1:] + self.K_n[:,:-1])/2 # YCXG [:,1:-1]
 
         # calculate dqdx at YGXC points
         self.qbar_n = np.array((self.f + self.xibar_n)/self.bathy_np) # YGXG
@@ -1497,20 +1523,20 @@ class Barotropic:
         # 4 point average of dqdy to YGXC points. do not calculate at boundaries. 
         self.qbar_dy_n_YGXC = (self.qbar_dy_n_YCXG[1:,:-1] + self.qbar_dy_n_YCXG[1:,1:] + self.qbar_dy_n_YCXG[:-1,:-1] + self.qbar_dy_n_YCXG[:-1,1:])/4 # YGXC
         # calculate mod grad qbar on YGXC
-        self.mod_grad_qbar_n_YGXC = np.sqrt(self.qbar_dx_n_YGXC[1:-1,:]**2 + self.qbar_dy_n_YGXC**2) # YGXC
+        self.mod_grad_qbar_n_YGXC = np.sqrt(self.qbar_dx_n_YGXC[1:-1,:]**2 + self.qbar_dy_n_YGXC**2) # YGXC [1:-1,:]
         # calculate mod grad qbar on YCXG
-        self.mod_grad_qbar_n_YCXG = np.sqrt(self.qbar_dx_n_YCXG**2 + self.qbar_dy_n_YCXG[:,1:-1]**2) # YCXG
+        self.mod_grad_qbar_n_YCXG = np.sqrt(self.qbar_dx_n_YCXG**2 + self.qbar_dy_n_YCXG[:,1:-1]**2) # YCXG [:,1:-1]
         # calculate kappa_q at YGXC and YCXG points. Set to zero on boundaries for zero flux BC. 
-        self.kappa_n_YGXC = 2*self.gamma_q*np.sqrt(self.Q_n_YGXC*self.K_n_YGXC)/self.mod_grad_qbar_n_YGXC # YGXC
-        self.kappa_n_YCXG = 2*self.gamma_q*np.sqrt(self.Q_n_YCXG*self.K_n_YCXG)/self.mod_grad_qbar_n_YCXG # YCXG
+        self.kappa_n_YGXC = 2*self.gamma_q*np.sqrt(self.Q_n_YGXC*self.K_n_YGXC)/self.mod_grad_qbar_n_YGXC # YGXC [1:-1,:]
+        self.kappa_n_YCXG = 2*self.gamma_q*np.sqrt(self.Q_n_YCXG*self.K_n_YCXG)/self.mod_grad_qbar_n_YCXG # YCXG [:,1:-1]
         # set kappa_n_YGXC to zero on the northern and southern boundaries
-        self.kappa_n_YGXC = np.pad(self.kappa_n_YGXC,((1,1),(0,0)),constant_values=0) # YGXC
+        self.kappa_n_YGXC = np.pad(self.kappa_n_YGXC,((1,1),(0,0)),constant_values=0) # YGXC [:,:]
         # set kappa_n_YCXG to zero on the eastern and western boundaries 
-        self.kappa_n_YCXG = np.pad(self.kappa_n_YCXG,((0,0),(1,1)),constant_values=0) # YCXG
+        self.kappa_n_YCXG = np.pad(self.kappa_n_YCXG,((0,0),(1,1)),constant_values=0) # YCXG [:,:]
         # calculate qu_EDDY = bar{q'u'} at YGXC points
-        self.qu_EDDY_n_YGXC = -self.kappa_n_YGXC*self.qbar_dx_n_YGXC # YGXC
+        self.qu_EDDY_n_YGXC = -self.kappa_n_YGXC*self.qbar_dx_n_YGXC # YGXC [:,:]
         # calculate qv_EDDY = bar{q'v'} at YCXG points
-        self.qv_EDDY_n_YCXG = -self.kappa_n_YCXG*self.qbar_dy_n_YCXG # YCXG
+        self.qv_EDDY_n_YCXG = -self.kappa_n_YCXG*self.qbar_dy_n_YCXG # YCXG [:,:]
         # calculate bar{q'u'}dqdx at YGXC points
         self.enstrophyGen_n_x_YGXC = -self.kappa_n_YGXC*self.qbar_dx_n_YGXC**2 # YGXC
         # calculate bqr{q'v'}dqdy at YCXG points
