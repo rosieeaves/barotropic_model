@@ -1117,7 +1117,7 @@ class Barotropic:
 
         # create coefficient matrices
 
-        C2 = (-1/(self.bathy_np*self.d**2)) + (1/(4*(self.bathy_np**2)*(self.d**2)))*(np.roll(self.bathy_np,-1,1) - np.roll(self.bathy_np,1,1))
+        '''C2 = (-1/(self.bathy_np*self.d**2)) + (1/(4*(self.bathy_np**2)*(self.d**2)))*(np.roll(self.bathy_np,-1,1) - np.roll(self.bathy_np,1,1))
 
         C3 = (-1/(self.bathy_np*self.d**2)) - (1/(4*(self.bathy_np**2)*(self.d**2)))*(np.roll(self.bathy_np,-1,1) - np.roll(self.bathy_np,1,1))
 
@@ -1125,8 +1125,19 @@ class Barotropic:
 
         C5 = (-1/(self.bathy_np*self.d**2)) - (1/(4*(self.bathy_np**2)*(self.d**2)))*(np.roll(self.bathy_np,-1,0) - np.roll(self.bathy_np,1,0))
         
-        C6 = 4/(self.bathy_np*self.d**2)
+        C6 = 4/(self.bathy_np*self.d**2)'''
 
+        C2 = 2/(np.roll(self.bathy_np,-1,1) + self.bathy_np)
+
+        C3 = 2/(self.bathy_np + np.roll(self.bathy_np,1,1))
+
+        C4 = 2/(np.roll(self.bathy_np,-1,0) + self.bathy_np)
+
+        C5 = 2/(self.bathy_np + np.roll(self.bathy_np,1,0))
+
+        C6 = -2/(np.roll(self.bathy_np,-1,0) + self.bathy_np) - 2/(np.roll(self.bathy_np,-1,1) + self.bathy_np) - \
+            2/(self.bathy_np + np.roll(self.bathy_np,1,0)) - 2/(self.bathy_np + np.roll(self.bathy_np,1,1))
+        
         # create diagonals
 
         diags_C3_1 = sp.sparse.diags(C3.flatten(),offsets=-1,shape=(self.NyG*self.NxG,self.NyG*self.NxG)) 
@@ -1576,7 +1587,7 @@ class Barotropic:
 
 #%%
 
-'''d = 5000 # m
+d = 5000 # m
 Nx = 200
 Ny = 200
 Lx = d*Nx # m
@@ -1602,7 +1613,7 @@ tau_0 = 0
 rho_0 = 1025
 # TIME STEPPING
 dt = 900
-Nt = 1000
+Nt = 10
 dumpFreq =  900
 meanDumpFreq = 9000
 diagnostics = ['xi_u','xi_v','u_u','v_v','xi_xi','q','q_q']
@@ -1654,7 +1665,15 @@ plt.show()
 #%%
 plt.contourf(data.XG,data.YG,domain.BD_n)
 plt.colorbar()
-plt.show()'''
+plt.show()
 
 
+# %%
+xi = np.array(data.xi)
+
+t = 1
+
+xi_integral = np.sum(xi[t]*data.bathy*data.dx*data.dy)
+
+print(xi_integral)
 # %%
