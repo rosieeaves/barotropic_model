@@ -533,9 +533,10 @@ class Barotropic:
             def time_step(scheme,**kw):
 
                 def wrapper(*args,**kwargs):
+                    self.zeta_n = np.array((self.f + self.xibar_n))
+                    self.qbar_n = np.array((self.f + self.xibar_n)/self.bathy_np)
 
                     # CALCULATE VORTICITY AT NEXT TIME STEP
-                    # NOTE: advection_xi must always happen first so that psi_YCXC_n can be calculated and used in other functions
                     # calculate advection term
                     self.advection_xi()
                     # dissiaption from bottom drag
@@ -550,7 +551,8 @@ class Barotropic:
                     self.diffusion_B_n = self.mu_xi_B*self.bathy_np*self.diffusion(var=self.diff_xi_pad)[1:-1,1:-1]
 
                     # eddy fluxes
-                    self.schemeFunctionsDict['calc_K_Q'](scheme=scheme)
+                    self.schemeFunctionsDict['calc_K_Q']()
+                    self.schemeFunctionsDict['KQ_timestep'](scheme=scheme)
                     self.schemeFunctionsDict['calc_eddyFluxes']()
                     # F_n
                     self.F_n = self.adv_n - self.eddyFluxes_n - self.BD_n + self.diffusion_L_n - self.diffusion_B_n + np.array(self.wind_stress)
@@ -1172,9 +1174,6 @@ class Barotropic:
 
     def advection_xi(self):
 
-        # calculate absolute velocity
-        self.zeta_n = np.array(self.xibar_n + self.f)
-
         # interpolate psi onto cell centres
         self.psiYCXC_n = (self.psibar_n[:-1,:-1] + self.psibar_n[:-1,1:] + self.psibar_n[1:,:-1] + self.psibar_n[1:,1:])/4
 
@@ -1188,17 +1187,16 @@ class Barotropic:
                             (self.zeta_n[1:-1,1:-1] + self.zeta_n[:-2,1:-1]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[:-2,1:-1]) + \
                                 ((self.psiYCXC_n[1:,:-1] - self.psiYCXC_n[:-1,:-1])*\
                                     (self.zeta_n[1:-1,1:-1] + self.zeta_n[1:-1,:-2]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[1:-1,:-2]))'''
+    
         
-        self.zeta_H_n = np.array(self.zeta_n/self.bathy_np)
-        
-        self.adv_n = (-1/(12*self.d**2))*((self.psibar_n[:-2,1:-1] + self.psibar_n[:-2,2:] - self.psibar_n[2:,1:-1] - self.psibar_n[2:,2:])*(self.zeta_H_n[1:-1,2:] - self.zeta_H_n[1:-1,1:-1]) + \
-                                         (self.psibar_n[:-2,:-2] + self.psibar_n[:-2,1:-1] - self.psibar_n[2:,:-2] - self.psibar_n[2:,1:-1])*(self.zeta_H_n[1:-1,1:-1] - self.zeta_H_n[1:-1,:-2]) + \
-                                            (self.psibar_n[1:-1,2:] + self.psibar_n[2:,2:] - self.psibar_n[1:-1,:-2] - self.psibar_n[2:,:-2])*(self.zeta_H_n[2:,1:-1] - self.zeta_H_n[1:-1,1:-1]) + \
-                                                (self.psibar_n[:-2,2:] + self.psibar_n[1:-1,2:] - self.psibar_n[:-2,:-2] - self.psibar_n[1:-1,:-2])*(self.zeta_H_n[1:-1,1:-1] - self.zeta_H_n[:-2,1:-1]) + \
-                                                    (self.psibar_n[1:-1,2:] - self.psibar_n[2:,1:-1])*(self.zeta_H_n[2:,2:]  - self.zeta_H_n[1:-1,1:-1]) + \
-                                                        (self.psibar_n[:-2,1:-1] - self.psibar_n[1:-1,:-2])*(self.zeta_H_n[1:-1,1:-1] - self.zeta_H_n[:-2,:-2]) + \
-                                                            (self.psibar_n[2:,1:-1] - self.psibar_n[1:-1,:-2])*(self.zeta_H_n[2:,:-2] - self.zeta_H_n[1:-1,1:-1]) + \
-                                                                (self.psibar_n[1:-1,2:] - self.psibar_n[:-2,1:-1])*(self.zeta_H_n[1:-1,1:-1] - self.zeta_H_n[:-2,2:]))
+        self.adv_n = (-1/(12*self.d**2))*((self.psibar_n[:-2,1:-1] + self.psibar_n[:-2,2:] - self.psibar_n[2:,1:-1] - self.psibar_n[2:,2:])*(self.qbar_n[1:-1,2:] - self.qbar_n[1:-1,1:-1]) + \
+                                         (self.psibar_n[:-2,:-2] + self.psibar_n[:-2,1:-1] - self.psibar_n[2:,:-2] - self.psibar_n[2:,1:-1])*(self.qbar_n[1:-1,1:-1] - self.qbar_n[1:-1,:-2]) + \
+                                            (self.psibar_n[1:-1,2:] + self.psibar_n[2:,2:] - self.psibar_n[1:-1,:-2] - self.psibar_n[2:,:-2])*(self.qbar_n[2:,1:-1] - self.qbar_n[1:-1,1:-1]) + \
+                                                (self.psibar_n[:-2,2:] + self.psibar_n[1:-1,2:] - self.psibar_n[:-2,:-2] - self.psibar_n[1:-1,:-2])*(self.qbar_n[1:-1,1:-1] - self.qbar_n[:-2,1:-1]) + \
+                                                    (self.psibar_n[1:-1,2:] - self.psibar_n[2:,1:-1])*(self.qbar_n[2:,2:]  - self.qbar_n[1:-1,1:-1]) + \
+                                                        (self.psibar_n[:-2,1:-1] - self.psibar_n[1:-1,:-2])*(self.qbar_n[1:-1,1:-1] - self.qbar_n[:-2,:-2]) + \
+                                                            (self.psibar_n[2:,1:-1] - self.psibar_n[1:-1,:-2])*(self.qbar_n[2:,:-2] - self.qbar_n[1:-1,1:-1]) + \
+                                                                (self.psibar_n[1:-1,2:] - self.psibar_n[:-2,1:-1])*(self.qbar_n[1:-1,1:-1] - self.qbar_n[:-2,2:]))
         
 
         # pad with zero values on boundaries
@@ -1414,48 +1412,56 @@ class Barotropic:
             print('Energy conversion and enstrophy generation only. Calculates eddy fluxes.')
             self.schemeFunctionsDict = {
                 'calc_K_Q': self.K_Q_EGEC,
+                'KQ_timestep' : self.timestep_KQ,
                 'calc_eddyFluxes': self.eddyFluxes_scheme
             }
         elif self.eddy_scheme == 'EGEC_TEST':
             print('Energy conversion and enstrophy generation only. Doesn\'t calculate eddy fluxes.')
             self.schemeFunctionsDict = {
                 'calc_K_Q': self.K_Q_EGEC,
+                'KQ_timestep' : self.noTimestep,
                 'calc_eddyFluxes': self.noEddyFluxes
             }
         elif self.eddy_scheme == 'EGECAD':
             print('Full scheme with advection and diffusion. Calculates eddy fluxes.')
             self.schemeFunctionsDict = {
                 'calc_K_Q': self.K_Q_EGECAD,
+                'KQ_timestep' : self.timestep_KQ,
                 'calc_eddyFluxes': self.eddyFluxes_scheme
             }
         elif self.eddy_scheme == 'EGECAD_TEST':
             print('Full scheme with advection and diffusion. Doesn\'t calculate eddy fluxes.')
             self.schemeFunctionsDict = {
                 'calc_K_Q': self.K_Q_EGECAD,
+                'KQ_timestep' : self.noTimestep,
                 'calc_eddyFluxes': self.noEddyFluxes
             }
         elif self.eddy_scheme == 'constant':
             print('Scheme with constant value of kappa_q.')
             self.schemeFunctionsDict = {
                 'calc_K_Q': self.no_K_Q,
+                'KQ_timestep' : self.noTimestep,
                 'calc_eddyFluxes': self.eddyFluxes_constant
             }
         elif self.eddy_scheme == 'AdvectionOnly':
             print('Adection of K and Lambda only. Does not calculate eddy fluxes.')
             self.schemeFunctionsDict = {
                 'calc_K_Q': self.K_Q_AdvectionOnly, 
+                'KQ_timestep' : self.timestep_KQ,
                 'calc_eddyFluxes': self.noEddyFluxes
             }
         elif self.eddy_scheme == 'EGECAD_backscatter':
             print('Full scheme. Includes EKE backscatter term.')
             self.schemeFunctionsDict = {
-                'calc_K_Q': self.K_Q_EGECAD_Backscatter, 
+                'calc_K_Q': self.K_Q_EGECADB,
+                'KQ_timestep' : self.timestep_KQ, 
                 'calc_eddyFluxes': self.eddyFluxes_scheme
             }
         else:
             print('No scheme.')
             self.schemeFunctionsDict = {
                 'calc_K_Q': self.no_K_Q,
+                'KQ_timestep' : self.noTimestep,
                 'calc_eddyFluxes': self.noEddyFluxes
             }
 
@@ -1472,7 +1478,7 @@ class Barotropic:
         setattr(self,var_return,var_adv)      
 
 
-    def K_Q_AdvectionOnly(self,scheme):
+    def K_Q_AdvectionOnly(self):
 
         # advect enstrophy and energy
         self.advection_YCXC(var=self.Q_n,var_return='QAdv_n')
@@ -1492,16 +1498,6 @@ class Barotropic:
         self.Q_F_n = -self.QAdv_n/self.bathy_YCXC + self.QDiff_L_n - (self.Q_n - self.Q_min_array)*self.r_Q 
         self.K_F_n = -self.KAdv_n/self.bathy_YCXC + self.KDiff_L_n - (self.K_n - self.K_min_array)*self.r_K
 
-        # step forward Q and K
-        self.Q_np1 = scheme(var_n=self.Q_n,dt=self.dt,F_n=self.Q_F_n,F_nm1=self.Q_F_nm1,F_nm2=self.Q_F_nm2)
-        self.K_np1 = scheme(var_n=self.K_n,dt=self.dt,F_n=self.K_F_n,F_nm1=self.K_F_nm1,F_nm2=self.K_F_nm2)
-        # set K = 0 where K is negative
-        self.K_np1 = np.where(self.K_np1 < 0,0,self.K_np1)
-
-        # add to sum variables
-        self.Q_sum = self.Q_sum + self.Q_np1
-        self.K_sum = self.K_sum + self.K_np1
-
         
 
     def EGEC(self):
@@ -1514,7 +1510,6 @@ class Barotropic:
         self.K_n_YCXG = (self.K_n[:,1:] + self.K_n[:,:-1])/2 # YCXG [:,1:-1]
 
         # calculate dqdx at YGXC points
-        self.qbar_n = np.array((self.f + self.xibar_n)/self.bathy_np) # YGXG
         self.qbar_dx_n_YGXC = (self.qbar_n[:,1:] - self.qbar_n[:,:-1])/self.dx # YGXC
         # calculate dqdy at YCXG points
         self.qbar_dy_n_YCXG = (self.qbar_n[1:,:] - self.qbar_n[:-1,:])/self.dy # YCXG
@@ -1567,41 +1562,15 @@ class Barotropic:
         self.energyConv_sum += self.energyConv_n
 
 
-    def K_Q_EGEC(self,scheme):
+    def K_Q_EGEC(self):
 
         self.EGEC()
-
-        # diffuse enstrophy
-        # add ghost points of edge values to ensure no flux through boundaries 
-        self.Q_n_ghost = np.pad(self.Q_n,((1,1)),mode='edge')
-        # calculate laplacian diffusion. outer (ghost) points will be set to zero. 
-        self.laplacian(var=self.Q_n_ghost,mu=1,var_return='QDiff_L_n')
-        # remove outer points and multiply by mu/H
-        self.QDiff_L_n = np.array(self.mu_PAR/self.bathy_YCXC)*self.QDiff_L_n[1:-1,1:-1]
-
-        # diffuse energy
-        # add ghost points of edge values to ensure no flux through boundaries
-        self.K_n_ghost = np.pad(self.K_n,((1,1)),mode='edge')
-        # calculate laplacian diffusion. outer (ghost) points will be set to zero. 
-        self.laplacian(var=self.K_n_ghost,mu=1,var_return='KDiff_L_n')
-        # remove outer points and multiply by mu/H
-        self.KDiff_L_n = np.array(self.mu_PAR/self.bathy_YCXC)*self.KDiff_L_n[1:-1,1:-1]
         
         # dQdt and dKdt
-        self.Q_F_n = -self.enstrophyGen_n - (self.Q_n - self.Q_min_array)*self.r_Q + self.QDiff_L_n 
-        self.K_F_n = self.energyConv_n - (self.K_n - self.K_min_array)*self.r_K + self.KDiff_L_n 
-        
-        # step forward Q and K
-        self.Q_np1 = scheme(var_n=self.Q_n,dt=self.dt,F_n=self.Q_F_n,F_nm1=self.Q_F_nm1,F_nm2=self.Q_F_nm2)
-        self.K_np1 = scheme(var_n=self.K_n,dt=self.dt,F_n=self.K_F_n,F_nm1=self.K_F_nm1,F_nm2=self.K_F_nm2)
-        # set K = 0 where K is negative
-        self.K_np1 = np.where(self.K_np1 < 0,0,self.K_np1)
+        self.Q_F_n = -self.enstrophyGen_n 
+        self.K_F_n = self.energyConv_n 
 
-        # add to sum variables
-        self.Q_sum = self.Q_sum + self.Q_np1
-        self.K_sum = self.K_sum + self.K_np1
-
-    def K_Q_EGECAD(self,scheme):
+    def K_Q_EGECAD(self):
         
         self.EGEC()
 
@@ -1628,40 +1597,10 @@ class Barotropic:
         # dQdt and dKdt
         self.Q_F_n = -self.enstrophyGen_n  - self.QAdv_n/self.bathy_YCXC + self.QDiff_L_n - (self.Q_n - self.Q_min_array)*self.r_Q
         self.K_F_n = self.energyConv_n - self.KAdv_n/self.bathy_YCXC + self.KDiff_L_n - (self.K_n - self.K_min_array)*self.r_K
+
+    def K_Q_EGECADB(self):
         
-        # step forward Q and K
-        self.Q_np1 = scheme(var_n=self.Q_n,dt=self.dt,F_n=self.Q_F_n,F_nm1=self.Q_F_nm1,F_nm2=self.Q_F_nm2)
-        self.K_np1 = scheme(var_n=self.K_n,dt=self.dt,F_n=self.K_F_n,F_nm1=self.K_F_nm1,F_nm2=self.K_F_nm2)
-        # set K = 0 where K is negative
-        self.K_np1 = np.where(self.K_np1 < 0,0,self.K_np1)
-
-        # add to sum variables
-        self.Q_sum += self.Q_np1
-        self.K_sum += self.K_np1
-
-    def K_Q_EGECAD_Backscatter(self,scheme):
-        
-        self.EGEC()
-
-        # advect enstrophy and energy
-        self.advection_YCXC(var=self.Q_n,var_return='QAdv_n')
-        self.advection_YCXC(var=self.K_n,var_return='KAdv_n')
-
-        # diffuse enstrophy
-        # add ghost points of edge values to ensure no flux through boundaries 
-        self.Q_n_ghost = np.pad(self.Q_n,((1,1)),mode='edge')
-        # calculate laplacian diffusion. outer (ghost) points will be set to zero. 
-        self.laplacian(var=self.Q_n_ghost,mu=1,var_return='QDiff_L_n')
-        # remove outer points and multiply by mu/H
-        self.QDiff_L_n = np.array(self.mu_PAR/self.bathy_YCXC)*self.QDiff_L_n[1:-1,1:-1]
-
-        # diffuse energy
-        # add ghost points of edge values to ensure no flux through boundaries
-        self.K_n_ghost = np.pad(self.K_n,((1,1)),mode='edge')
-        # calculate laplacian diffusion. outer (ghost) points will be set to zero. 
-        self.laplacian(var=self.K_n_ghost,mu=1,var_return='KDiff_L_n')
-        # remove outer points and multiply by mu/H
-        self.KDiff_L_n = np.array(self.mu_PAR/self.bathy_YCXC)*self.KDiff_L_n[1:-1,1:-1]
+        self.K_Q_EGECAD()
 
         # backscatter term
         backscatter_integrand = self.psibar_n*self.diffusion_B_n # YGXG
@@ -1671,21 +1610,30 @@ class Barotropic:
         self.KE_backscatter_n = backscatter_integral/self.volume_YCXC # volume average
         self.KE_backscatter_sum = self.KE_backscatter_sum + self.KE_backscatter_n*self.dt
 
-        # dQdt and dKdt
-        self.Q_F_n = -self.enstrophyGen_n  - self.QAdv_n/self.bathy_YCXC + self.QDiff_L_n - (self.Q_n - self.Q_min_array)*self.r_Q
-        self.K_F_n = self.energyConv_n - self.KAdv_n/self.bathy_YCXC + self.KDiff_L_n - (self.K_n - self.K_min_array)*self.r_K - self.backscatter_frac*self.KE_backscatter_n*np.ones_like(self.K_n)
+        # add to K_F_n
+        self.K_F_n = self.K_F_n - self.KE_backscatter_n*np.ones_like(self.K_n)
+
+        self.KE_backscatter_sum = self.KE_backscatter_sum + self.KE_backscatter_n*self.dt
+
+    def timestep_KQ(self,scheme):
 
         # step forward Q and K
         self.Q_np1 = scheme(var_n=self.Q_n,dt=self.dt,F_n=self.Q_F_n,F_nm1=self.Q_F_nm1,F_nm2=self.Q_F_nm2)
         self.K_np1 = scheme(var_n=self.K_n,dt=self.dt,F_n=self.K_F_n,F_nm1=self.K_F_nm1,F_nm2=self.K_F_nm2)
         # set K = 0 where K is negative
         self.K_np1 = np.where(self.K_np1 < 0,0,self.K_np1)
+        # set Q = 0 where Q is negative
+        self.Q_np1 = np.where(self.Q_np1 < 0,0,self.Q_np1)
 
         # add to sum variables
-        self.Q_sum = self.Q_sum + self.Q_np1
-        self.K_sum = self.K_sum + self.K_np1
+        self.Q_sum += self.Q_np1
+        self.K_sum += self.K_np1
 
-    def no_K_Q(self,scheme):
+    def noTimestep(self,scheme):
+        return
+
+
+    def no_K_Q(self):
         self.K_np1 = np.zeros_like(self.K_n) 
         self.Q_np1 = np.zeros_like(self.Q_n) 
 
