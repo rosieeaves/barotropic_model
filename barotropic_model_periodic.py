@@ -248,7 +248,7 @@ class Barotropic:
             self.index = 0
             self.index_MEAN = 0
             self.zeta_n = np.zeros((self.NyG,self.NxG))
-            self.q_n = np.zeros((self.NyG,self.NxG))
+            self.qbar_n = np.zeros((self.NyG,self.NxG))
             self.B = np.zeros((self.NyG,self.NxG))
 
             # calculate length of T and T_MEAN arrays
@@ -352,7 +352,6 @@ class Barotropic:
 
             if self.eddy_scheme != False:
                 if self.eddy_scheme == 'constant':
-                    self.qbar_n = np.zeros((self.NyG,self.NxG))
                     self.dqdx_n = np.zeros((self.NyG,self.NxG))
                     self.dqdy_n = np.zeros((self.NyG,self.NxG))
 
@@ -411,7 +410,6 @@ class Barotropic:
                     self.K_n_YCXG = np.zeros((self.NyC,self.NxG))
 
                     # variables for parameterization calculation 
-                    self.qbar_n = np.zeros((self.NyG,self.NxG))
                     self.dqdx_n_YCXC = np.zeros((self.NyC,self.NxC))
                     self.dqdx_n_YCXG = np.zeros((self.NyC,self.NxG))
                     self.dqdx_n_YGXC = np.zeros((self.NyG,self.NxC))
@@ -488,7 +486,7 @@ class Barotropic:
 
                     # calculate terms used in functions
                     self.zeta_n = np.array(self.f) + self.xibar_n 
-                    self.q_n = self.zeta_n/self.bathy_np
+                    self.qbar_n = self.zeta_n/self.bathy_np
 
                     # CALCULATE VORTICITY AT NEXT TIME STEP
                     # calculate advection term
@@ -1064,14 +1062,14 @@ class Barotropic:
     def advection_xi(self):
 
         # enstrophy and energy conserving advection term from Arakawa 66
-        self.adv_n = (-1/(12*self.d**2))*((np.roll(self.psibar_n,1,0) + np.roll(np.roll(self.psibar_n,1,0),-1,1) - np.roll(self.psibar_n,-1,0) - np.roll(np.roll(self.psibar_n,-1,0),-1,1))*(np.roll(self.q_n,-1,1) - self.q_n) + \
-                                                (np.roll(np.roll(self.psibar_n,1,0),1,1) + np.roll(self.psibar_n,1,0) - np.roll(np.roll(self.psibar_n,-1,0),1,1) - np.roll(self.psibar_n,-1,0))*(self.q_n - np.roll(self.q_n,1,1)) + \
-                                                        (np.roll(self.psibar_n,-1,1) + np.roll(np.roll(self.psibar_n,-1,0),-1,1) - np.roll(self.psibar_n,1,1) - np.roll(np.roll(self.psibar_n,-1,0),1,1))*(np.roll(self.q_n,-1,0) - self.q_n) + \
-                                                                (np.roll(np.roll(self.psibar_n,1,0),-1,1) + np.roll(self.psibar_n,-1,1) - np.roll(np.roll(self.psibar_n,1,0),1,1) - np.roll(self.psibar_n,1,1))*(self.q_n - np.roll(self.q_n,1,0)) + \
-                                                                        (np.roll(self.psibar_n,-1,1) - np.roll(self.psibar_n,-1,0))*(np.roll(np.roll(self.q_n,-1,0),-1,1) - self.q_n) + \
-                                                                                (np.roll(self.psibar_n,1,0) - np.roll(self.psibar_n,1,1))*(self.q_n - np.roll(np.roll(self.q_n,1,0),1,1)) + \
-                                                                                        (np.roll(self.psibar_n,-1,0) - np.roll(self.psibar_n,1,1))*(np.roll(np.roll(self.q_n,-1,0),1,1) - self.q_n) + \
-                                                                                                (np.roll(self.psibar_n,-1,1) - np.roll(self.psibar_n,1,0))*(self.q_n - np.roll(np.roll(self.q_n,1,0),-1,1)))
+        self.adv_n = (-1/(12*self.d**2))*((np.roll(self.psibar_n,1,0) + np.roll(np.roll(self.psibar_n,1,0),-1,1) - np.roll(self.psibar_n,-1,0) - np.roll(np.roll(self.psibar_n,-1,0),-1,1))*(np.roll(self.qbar_n,-1,1) - self.qbar_n) + \
+                                                (np.roll(np.roll(self.psibar_n,1,0),1,1) + np.roll(self.psibar_n,1,0) - np.roll(np.roll(self.psibar_n,-1,0),1,1) - np.roll(self.psibar_n,-1,0))*(self.qbar_n - np.roll(self.qbar_n,1,1)) + \
+                                                        (np.roll(self.psibar_n,-1,1) + np.roll(np.roll(self.psibar_n,-1,0),-1,1) - np.roll(self.psibar_n,1,1) - np.roll(np.roll(self.psibar_n,-1,0),1,1))*(np.roll(self.qbar_n,-1,0) - self.qbar_n) + \
+                                                                (np.roll(np.roll(self.psibar_n,1,0),-1,1) + np.roll(self.psibar_n,-1,1) - np.roll(np.roll(self.psibar_n,1,0),1,1) - np.roll(self.psibar_n,1,1))*(self.qbar_n - np.roll(self.qbar_n,1,0)) + \
+                                                                        (np.roll(self.psibar_n,-1,1) - np.roll(self.psibar_n,-1,0))*(np.roll(np.roll(self.qbar_n,-1,0),-1,1) - self.qbar_n) + \
+                                                                                (np.roll(self.psibar_n,1,0) - np.roll(self.psibar_n,1,1))*(self.qbar_n - np.roll(np.roll(self.qbar_n,1,0),1,1)) + \
+                                                                                        (np.roll(self.psibar_n,-1,0) - np.roll(self.psibar_n,1,1))*(np.roll(np.roll(self.qbar_n,-1,0),1,1) - self.qbar_n) + \
+                                                                                                (np.roll(self.psibar_n,-1,1) - np.roll(self.psibar_n,1,0))*(self.qbar_n - np.roll(np.roll(self.qbar_n,1,0),-1,1)))
         
     def advection_YCXC(self,var,var_return):
         
@@ -1442,7 +1440,6 @@ class Barotropic:
         # interpolate Lambda and K to YGXC and YCXG points. do not calculate at boundaries. 
         self.Q_n_YGXC = self.interp_y(var=self.Q_n) # YGXC
         self.K_n_YGXC = self.interp_y(var=self.K_n) # YGXC
-
         self.Q_n_YCXG = self.interp_x(var=self.Q_n)  # YCXG 
         self.K_n_YCXG = self.interp_x(var=self.K_n)  # YCXG 
 
@@ -1458,8 +1455,14 @@ class Barotropic:
                             np.roll(np.roll(self.dqdy_n_YCXG,1,0),-1,1) + self.dqdy_n_YCXG)/4 # YGXC
         # calculate mod grad qbar on YGXC
         self.mod_grad_qbar_n_YGXC = np.sqrt(self.dqdx_n_YGXC**2 + self.dqdy_n_YGXC**2) # YGXC 
+        # set minimum value
+        self.mod_grad_qbar_n_YGXC = np.where(self.mod_grad_qbar_n_YGXC<self.min_val,\
+                                     self.min_val*np.ones_like(self.mod_grad_qbar_n_YGXC),self.mod_grad_qbar_n_YGXC)
         # calculate mod grad qbar on YCXG
         self.mod_grad_qbar_n_YCXG = np.sqrt(self.dqdx_n_YCXG**2 + self.dqdy_n_YCXG**2) # YCXG 
+        # set minimum value
+        self.mod_grad_qbar_n_YCXG = np.where(self.mod_grad_qbar_n_YCXG<self.min_val,\
+                                     self.min_val*np.ones_like(self.mod_grad_qbar_n_YCXG),self.mod_grad_qbar_n_YCXG)
         # calculate kappa_q at YGXC and YCXG points. Set to zero on boundaries for zero flux BC. 
         self.kappa_n_YGXC = 2*self.gamma_q*np.sqrt(self.Q_n_YGXC*self.K_n_YGXC)/self.mod_grad_qbar_n_YGXC # YGXC 
         self.kappa_n_YCXG = 2*self.gamma_q*np.sqrt(self.Q_n_YCXG*self.K_n_YCXG)/self.mod_grad_qbar_n_YCXG # YCXG 
@@ -1472,8 +1475,7 @@ class Barotropic:
         # calculate bqr{q'v'}dqdy at YCXG points
         self.enstrophyGen_n_y_YCXG = self.qv_EDDY_n_YCXG*self.dqdy_n_YCXG # YCXG
         # calculate enstrophy generation at YCXC points 
-        self.enstrophyGen_n = (np.roll(self.enstrophyGen_n_x_YGXC,-1,1) + self.enstrophyGen_n_x_YGXC + \
-                               np.roll(self.enstrophyGen_n_y_YCXG,-1,0) + self.enstrophyGen_n_y_YCXG)/2 # YCXC
+        self.enstrophyGen_n = (np.roll(self.enstrophyGen_n_x_YGXC,-1,1) + self.enstrophyGen_n_x_YGXC + np.roll(self.enstrophyGen_n_y_YCXG,-1,0) + self.enstrophyGen_n_y_YCXG)/2 # YCXC
 
         # calculate dpsidx at YGXC points 
         self.dpsidx_n_YGXC = self.dx_YGXG(var=self.psibar_n) # YGXC
@@ -1493,6 +1495,8 @@ class Barotropic:
         self.dqdy_n_YCXC = (np.roll(np.roll(self.qbar_n,-1,0),-1,1) + np.roll(self.qbar_n,-1,0) - \
                             np.roll(self.qbar_n,-1,1) - self.qbar_n)/(2*self.dy) # YCXC
         self.mod_grad_qbar_n_YCXC = np.sqrt(self.dqdx_n_YCXC**2 + self.dqdy_n_YCXC**2) # YCXC
+        self.mod_grad_qbar_n_YCXC = np.where(self.mod_grad_qbar_n_YCXC<self.min_val,\
+                                     self.min_val*np.ones_like(self.mod_grad_qbar_n_YCXC),self.mod_grad_qbar_n_YCXC)
         self.kappa_n = 2*self.gamma_q*np.sqrt(self.Q_n*self.K_n)/self.mod_grad_qbar_n_YCXC # YCXC
 
         # sum variables
@@ -1517,13 +1521,13 @@ class Barotropic:
 
         # diffuse enstrophy
         # calculate laplacian diffusion. 
-        self.laplacian(var=self.Q_n,mu=1,var_return='QDiff_L_n')
+        self.laplacian(var=self.Q_n*self.bathy_YCXC,mu=1,var_return='QDiff_L_n')
         # multiply by mu/H
         self.QDiff_L_n = np.array(self.mu_PAR/self.bathy_YCXC)*self.QDiff_L_n
 
         # diffuse energy
         # calculate laplacian diffusion. 
-        self.laplacian(var=self.K_n,mu=1,var_return='KDiff_L_n')
+        self.laplacian(var=self.K_n*self.bathy_YCXC,mu=1,var_return='KDiff_L_n')
         # multiply by mu/H
         self.KDiff_L_n = np.array(self.mu_PAR/self.bathy_YCXC)*self.KDiff_L_n
 
@@ -1593,19 +1597,19 @@ class Barotropic:
 
 #%%
 
-'''d = 5000 # m
-Nx = 200
-Ny = 200
+'''d = 50000 # m
+Nx = 20
+Ny = 20
 Lx = d*Nx # m
 Ly = d*Ny # m
 f0 = 0.7E-4 # s-1
 beta = 0 # m-1s-1
 # VORTICITY PARAMETERS
 r_BD = 0
-mu_xi_B = 1.E8
+mu_xi_B = 1.E11
 mu_xi_L = 0
 # EDDY SCHEME PARAMETERS
-mu_PAR = 500*5000
+mu_PAR = 500
 r_Q = 5.E-8
 r_K = 0
 Q_min = 0
@@ -1620,11 +1624,11 @@ rho_0 = 1025
 # TIME STEPPING
 dt = 900
 Nt = 100
-dumpFreq =  86400
+dumpFreq =  900
 meanDumpFreq = 9000
 diagnostics = ['xi_u','xi_v','u_u','v_v','xi_xi','q','q_q']
 
-bathy_random = np.load('./../barotropic_model_analysis/model_data/periodic/FDT_5km/randomTopography_5km.npy')
+bathy_random = np.load('./../barotropic_model_analysis/model_data/periodic/FDT_50km/randomTopography_50km.npy')
 #bathy_flat = 500*np.ones((Ny+1,Nx+1))
 
 #bathy_random = np.ones((Ny,Nx))
@@ -1633,7 +1637,9 @@ domain = Barotropic(d=d,Nx=Nx,Ny=Ny,bathy=bathy_random,f0=f0,beta=beta)
 
 #%%
 
-init_psi = np.load('./../barotropic_model_analysis/model_data/periodic/FDT_5km/initPsi_5km.npy')
+#init_psi = np.load('./../barotropic_model_analysis/model_data/periodic/FDT_5km/initPsi_5km.npy')
+
+init_psi = np.zeros((Ny,Nx))
 
 domain.init_psi(init_psi)
 
@@ -1648,6 +1654,35 @@ data = domain.model(dt=dt,\
                             dumpFreq=dumpFreq,\
                                 meanDumpFreq=meanDumpFreq)#,\
                                     #diags=diagnostics)
+
+#%%
+
+init_K = 3.4E-3*np.ones((Ny,Nx))
+init_Q = 1.E-20*np.ones((Ny,Nx))
+
+#%%
+
+data = domain.model(dt=dt,\
+    Nt=Nt,\
+        dumpFreq=dumpFreq,\
+            meanDumpFreq=meanDumpFreq,
+                r_BD=r_BD,\
+                    mu_xi_L=mu_xi_L,\
+                        mu_xi_B=mu_xi_B,\
+                            tau_0=tau_0,\
+                                rho_0=rho_0,\
+                                    eddy_scheme='EGECAD',\
+                                        init_K=init_K,\
+                                            init_Q=init_Q,\
+                                                gamma_q=gamma_q,\
+                                                    mu_PAR=mu_PAR,\
+                                                        r_Q=r_Q,\
+                                                            r_K=r_K,\
+                                                                Q_min=Q_min,\
+                                                                    K_min=K_min,\
+                                                                        min_val=min_val,\
+                                                                            max_val = max_val,\
+                                                                                diags=diagnostics)
 
 
 # %%
@@ -1721,5 +1756,19 @@ print(np.abs(np.sum(domain.xi_matrix.todense(),0)).max())
 print(np.abs(np.sum(domain.xi_matrix,0)).max())
 print(np.abs(np.sum(domain.xi_matrix,1)).max())
 # %%
-print(np.abs(domain.xi_matrix - np.transpose(domain.xi_matrix)).max())'''
+print(np.abs(domain.xi_matrix - np.transpose(domain.xi_matrix)).max())
+# %%
+
+print(domain.dqdx_n_YCXG**2 + domain.dqdy_n_YCXG**2)
+
+# %%
+print(np.shape(np.roll(domain.enstrophyGen_n_x_YGXC,-1,1) ))
+print(np.shape(domain.enstrophyGen_n_x_YGXC))
+print(np.shape(np.roll(domain.enstrophyGen_n_y_YCXG,-1,0)))
+print(np.shape(domain.enstrophyGen_n_y_YCXG))
+#self.enstrophyGen_n = (np.roll(self.enstrophyGen_n_x_YGXC,-1,1) + self.enstrophyGen_n_x_YGXC + np.roll(self.enstrophyGen_n_y_YCXG,-1,0) + self.enstrophyGen_n_y_YCXG)/2 # YCXC
+# %%
+plt.contourf(data.XC,data.YC,domain.KDiff_L_n)
+plt.colorbar()
+plt.show()'''
 # %%
