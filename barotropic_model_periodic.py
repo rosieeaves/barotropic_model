@@ -76,28 +76,24 @@ class Barotropic:
     # INITIAL CONDITIONS FUNCTIONS
     ##########################################################################
             
-    def init_psi(self,psi,i_zero,j_zero):
+    def init_psi(self,psi):
         try:
             np.shape(psi) == ((self.NyG,self.NxG))
         except ValueError:
             print('Initial psi must have shape (Ny,Nx) and be defined on the grid corners.')
         else:
             self.start = 'FE'
-            self.i_zero = i_zero
-            self.j_zero = j_zero
             self.psibar_0 = psi
-            self.calc_UV(psi=self.psibar_0,u_return='ubar_0',v_return='vbar_0')
             self.xi_from_psi()
+            self.psi_from_xi()
 
-    def init_xi(self,xi,i_zero,j_zero):
+    def init_xi(self,xi):
         try:
             np.shape(xi) == ((self.NyG,self.NxG))
         except ValueError:
             print('Initial xi must have shape (Ny+1,Nx+1) to be defined on the grid corners.')
         else:
             self.start = 'FE'
-            self.i_zero = i_zero
-            self.j_zero = j_zero
             self.xibar_0 = xi
             self.psi_from_xi()
 
@@ -110,7 +106,8 @@ class Barotropic:
             # get elliptic solver
             self.elliptic()
 
-            psibar = self.LU.solve((np.array(self.xibar_0)).flatten())
+            self.B_0 = self.xibar_0.copy()
+            psibar = self.LU.solve((-np.array(self.B_0)).flatten())
             psibar = psibar.reshape((self.NyG,self.NxG))
             self.psibar_0 = psibar
             self.calc_UV(psi=self.psibar_0,u_return='ubar_0',v_return='vbar_0')
@@ -141,17 +138,17 @@ class Barotropic:
         try:
             np.shape(xi) == ((self.NyG,self.NxG))
         except ValueError: 
-            print('Initial xi must have shape (Ny+1,Nx+1) to be defined on the grid corners.')
+            print('Initial xi must have shape (Ny,Nx) to be defined on the grid corners.')
         else:
             try:
                 np.shape(F_nm1) == ((self.NyG,self.NxG))
             except ValueError: 
-                print('F_nm1 must have shape (Ny+1,Nx+1) to be defined on the grid corners.')
+                print('F_nm1 must have shape (Ny,Nx) to be defined on the grid corners.')
             else: 
                 try:
                     np.shape(F_nm2) == ((self.NyG,self.NxG))
                 except ValueError: 
-                    print('F_nm2 must have shape (Ny+1,Nx+1) to be defined on the grid corners.')
+                    print('F_nm2 must have shape (Ny,Nx) to be defined on the grid corners.')
                 else:
                     self.start = 'AB3'
                     self.xibar_0 = xi
@@ -518,9 +515,9 @@ class Barotropic:
 
                     # SOLVE FOR PSI AT NEXT TIME STEP
                     # comment out for solid body rotation
-                    #self.B = self.xibar_n.copy()
-                    #self.B[self.j_zero,self.i_zero] = 0
-                    self.psibar_np1 = self.LU.solve((-np.array(self.xibar_np1)).flatten())
+                    self.B = self.xibar_n.copy()
+                    self.B[0,0] = 0
+                    self.psibar_np1 = self.LU.solve((-np.array(self.B)).flatten())
                     self.psibar_np1 = self.psibar_np1.reshape((self.NyG,self.NxG))
 
                     self.calc_UV(psi=self.psibar_np1,u_return='ubar_np1',v_return='vbar_np1')
@@ -1175,16 +1172,11 @@ class Barotropic:
         self.xi_matrix = matrix.copy()
 
         # set zero point for uniqueness in a periodic domain
-
-        '''zero_index = self.j_zero*self.NyG + self.i_zero + 1
-        print(zero_index)
         matrix = sp.sparse.lil_matrix(matrix)
-        matrix[zero_index-1,:] = 0
-        matrix[:,zero_index-1] = 0
-        matrix[zero_index-1,zero_index-1] = 1'''
+        matrix[0,:] = 0
+        matrix[:,0] = 0
+        matrix[0,0] = 1
         self.matrix = matrix
-
-        print(matrix.todense())
 
         # create LU solver
 
@@ -1601,18 +1593,17 @@ class Barotropic:
 
 #%%
 
-'''L_0 = 1
-d = 5000/L_0 # m
+'''d = 5000 # m
 Nx = 200
 Ny = 200
 Lx = d*Nx # m
 Ly = d*Ny # m
 f0 = 0.7E-4 # s-1
-beta = 0*L_0 # m-1s-1
+beta = 0 # m-1s-1
 # VORTICITY PARAMETERS
 r_BD = 0
-mu_xi_B = 1.E8/L_0**4
-mu_xi_L = 0/L_0**2
+mu_xi_B = 1.E8
+mu_xi_L = 0
 # EDDY SCHEME PARAMETERS
 mu_PAR = 500*5000
 r_Q = 5.E-8
@@ -1628,12 +1619,12 @@ tau_0 = 0
 rho_0 = 1025
 # TIME STEPPING
 dt = 900
-Nt = 960*2
+Nt = 100
 dumpFreq =  86400
 meanDumpFreq = 9000
 diagnostics = ['xi_u','xi_v','u_u','v_v','xi_xi','q','q_q']
 
-bathy_random = np.load('./../barotropic_model_analysis/model_data/periodic/FDT_5km/randomTopography_5km.npy')/L_0
+bathy_random = np.load('./../barotropic_model_analysis/model_data/periodic/FDT_5km/randomTopography_5km.npy')
 #bathy_flat = 500*np.ones((Ny+1,Nx+1))
 
 #bathy_random = np.ones((Ny,Nx))
@@ -1642,15 +1633,9 @@ domain = Barotropic(d=d,Nx=Nx,Ny=Ny,bathy=bathy_random,f0=f0,beta=beta)
 
 #%%
 
-init_psi = np.load('./../barotropic_model_analysis/model_data/periodic/FDT_5km/initPsi_5km.npy')/L_0**3
+init_psi = np.load('./../barotropic_model_analysis/model_data/periodic/FDT_5km/initPsi_5km.npy')
 
-#init_psi = np.zeros((Ny,Nx))
-
-i_zero = int(np.argmin(np.abs(init_psi))%(Ny+1))-1
-j_zero = int((np.argmin(np.abs(init_psi))-i_zero)/(Ny+1))
-print(i_zero)
-print(j_zero)
-domain.init_psi(init_psi,i_zero=i_zero,j_zero=j_zero)
+domain.init_psi(init_psi)
 
 #%%
 data = domain.model(dt=dt,\
