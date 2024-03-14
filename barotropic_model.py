@@ -296,8 +296,8 @@ class Barotropic:
             self.vbar_np1 = np.zeros_like(self.vbar_n)
             self.index = 0
             self.index_MEAN = 0
-
-            self.advWest_n = np.zeros_like(self.xibar_n)
+            self.zeta_n = np.zeros((self.NyG,self.NxG))
+            self.qbar_n = np.zeros((self.NyG,self.NxG))
 
             # calculate length of T and T_MEAN arrays
             len_T = int((self.Nt*self.dt)/self.dumpFreq)
@@ -305,10 +305,10 @@ class Barotropic:
 
             # create arrays to save the data
             # NOTE: len_T+1 so that you can add the value at time = 0 in
-            self.xibar = np.zeros((len_T+1,self.NyG,self.NxG),dtype=object)
-            self.psibar = np.zeros((len_T+1,self.NyG,self.NxG),dtype=object)
-            self.ubar = np.zeros((len_T+1,self.NyC,self.NxG),dtype=object)
-            self.vbar = np.zeros((len_T+1,self.NyG,self.NxC),dtype=object)
+            self.xibar = np.zeros((len_T+1,self.NyG,self.NxG))
+            self.psibar = np.zeros((len_T+1,self.NyG,self.NxG))
+            self.ubar = np.zeros((len_T+1,self.NyC,self.NxG))
+            self.vbar = np.zeros((len_T+1,self.NyG,self.NxC))
             self.xibar[0] = self.xibar_0
             self.psibar[0] = self.psibar_0
             self.ubar[0] = self.ubar_0
@@ -319,10 +319,10 @@ class Barotropic:
             self.psibar_sum = self.psibar_0
             self.ubar_sum = self.ubar_0
             self.vbar_sum = self.vbar_0
-            self.xi_MEAN = np.zeros((len_T_MEAN,self.NyG,self.NxG),dtype=object)
-            self.psi_MEAN = np.zeros((len_T_MEAN,self.NyG,self.NxG),dtype=object)
-            self.u_MEAN = np.zeros((len_T_MEAN,self.NyC,self.NxG),dtype=object)
-            self.v_MEAN = np.zeros((len_T_MEAN,self.NyG,self.NxC),dtype=object)
+            self.xi_MEAN = np.zeros((len_T_MEAN,self.NyG,self.NxG))
+            self.psi_MEAN = np.zeros((len_T_MEAN,self.NyG,self.NxG))
+            self.u_MEAN = np.zeros((len_T_MEAN,self.NyC,self.NxG))
+            self.v_MEAN = np.zeros((len_T_MEAN,self.NyG,self.NxC))
 
             # create diagnostic parameters
             # method for calculating diagnostics e.g. xi_u
@@ -341,7 +341,7 @@ class Barotropic:
                 # Should be added to every dumpFreq seconds.
                 num_Y = len(getattr(self,self.diagnosticsCoordDict[var][1]))
                 num_X = len(getattr(self,self.diagnosticsCoordDict[var][2]))
-                setattr(self,var,np.zeros((len_T+1,num_Y,num_X),dtype=object))
+                setattr(self,var,np.zeros((len_T+1,num_Y,num_X)))
                 # create variable for calculating np1 time step, e.g. self.xi_u_np1. Initialise with zeros. 
                 # Should be updated every timestep.
                 setattr(self,self.diagnosticsNP1Dict[var],np.zeros((num_Y,num_X)))
@@ -353,7 +353,7 @@ class Barotropic:
                 setattr(self,self.diagnosticsNP1Dict[var],np.zeros((num_Y,num_X)))
                 # create array to save MEAN data in, e.g. self.xi_u_MEAN. Initialise with zeros. 
                 # Should be added to every meanDumpFreq seconds.
-                setattr(self,self.diagnosticsMeanDict[var],np.zeros((len_T_MEAN,num_Y,num_X),dtype=object))
+                setattr(self,self.diagnosticsMeanDict[var],np.zeros((len_T_MEAN,num_Y,num_X)))
                 # create variable for summing snapshot data for use in calculating mean, e.g. self.xi_u_sum. 
                 # Should be updated every timestep. 
                 setattr(self,self.diagnosticsSumDict[var],getattr(self,var)[0])
@@ -401,21 +401,25 @@ class Barotropic:
 
             if self.eddy_scheme != False:
                 if self.eddy_scheme == 'constant':
-                    self.qbar_n = np.zeros((self.NyG,self.NxG))
-                    self.qbar_dx_n = np.zeros((self.NyG,self.NxG))
-                    self.qbar_dy_n = np.zeros((self.NyG,self.NxG))
+                    self.dqdx_n = np.zeros((self.NyG,self.NxG))
+                    self.dqdy_n = np.zeros((self.NyG,self.NxG))
+
                     self.flux_u_n = np.zeros((self.NyG,self.NxG))
                     self.flux_v_n = np.zeros((self.NyG,self.NxG))
                     self.eddyFluxes_n = np.zeros((self.NyG,self.NxG))
+
                     self.Q_0 = np.zeros((self.NyC,self.NxC))
                     self.Q_n = np.zeros((self.NyC,self.NxC))
                     self.Q_np1 = np.zeros((self.NyC,self.NxC))
+
                     self.K_0 = np.zeros((self.NyC,self.NxC))
                     self.K_n = np.zeros((self.NyC,self.NxC))
                     self.K_np1 = np.zeros((self.NyC,self.NxC))
+
                     self.Q_F_n = np.zeros((self.NyC,self.NxC))
                     self.Q_F_nm1 = np.zeros((self.NyC,self.NxC))
                     self.Q_F_nm2 = np.zeros((self.NyC,self.NxC))
+
                     self.K_F_n = np.zeros((self.NyC,self.NxC))
                     self.K_F_nm1 = np.zeros((self.NyC,self.NxC))
                     self.K_F_nm2 = np.zeros((self.NyC,self.NxC))
@@ -425,16 +429,15 @@ class Barotropic:
                     self.Q_0 = init_Q
                     self.Q_n = self.Q_0
                     self.Q_np1 = np.zeros((self.NyC,self.NxC))
-                    self.Q = np.zeros((len_T+1,self.NyC,self.NxC),dtype=object)
+                    self.Q = np.zeros((len_T+1,self.NyC,self.NxC))
                     self.Q[0] = self.Q_0
                     self.Q_F_n = np.zeros((self.NyC,self.NxC))
                     self.Q_F_nm1 = np.zeros((self.NyC,self.NxC))
                     self.Q_F_nm2 = np.zeros((self.NyC,self.NxC))
                     self.Q_sum = self.Q_0
-                    self.Q_MEAN = np.zeros((len_T_MEAN,self.NyC,self.NxC),dtype=object)
+                    self.Q_MEAN = np.zeros((len_T_MEAN,self.NyC,self.NxC))
                     self.QAdv_n = np.zeros((self.NyC,self.NxC))
                     self.QDiff_L_n = np.zeros((self.NyC,self.NxC))
-                    self.QDiff_B_n = np.zeros((self.NyC,self.NxC))
                     self.Q_n_YGXG = np.zeros((self.NyG,self.NxG))
                     self.Q_n_ghost = np.zeros((self.NyC+2,self.NxC+2))
                     self.Q_n_YGXC = np.zeros((self.NyG,self.NxC))
@@ -445,27 +448,28 @@ class Barotropic:
                     self.K_0 = init_K
                     self.K_n = self.K_0
                     self.K_np1 = np.zeros((self.NyC,self.NxC))
-                    self.K = np.zeros((len_T+1,self.NyC,self.NxC),dtype=object)
+                    self.K = np.zeros((len_T+1,self.NyC,self.NxC))
                     self.K[0] = self.K_0
                     self.K_F_n = np.zeros((self.NyC,self.NxC))
                     self.K_F_nm1 = np.zeros((self.NyC,self.NxC))
                     self.K_F_nm2 = np.zeros((self.NyC,self.NxC))
                     self.K_sum = self.K_0
-                    self.K_MEAN = np.zeros((len_T_MEAN,self.NyC,self.NxC),dtype=object)
+                    self.K_MEAN = np.zeros((len_T_MEAN,self.NyC,self.NxC))
                     self.KAdv_n = np.zeros((self.NyC,self.NxC))
                     self.KDiff_L_n = np.zeros((self.NyC,self.NxC))
-                    self.KDiff_B_n = np.zeros((self.NyC,self.NxC))
                     self.K_n_YGXG = np.zeros((self.NyG,self.NxG))
                     self.K_n_ghost = np.zeros((self.NyC+2,self.NxC+2))
                     self.K_n_YGXC = np.zeros((self.NyG,self.NxC))
                     self.K_n_YCXG = np.zeros((self.NyC,self.NxG))
 
                     # variables for parameterization calculation 
-                    self.qbar_n = np.zeros((self.NyG,self.NxG))
-                    self.qbar_dx_n_YGXC = np.zeros((self.NyG,self.NxC))
-                    self.qbar_dx_n_YCXG = np.zeros((self.NyC,self.NxG))
-                    self.qbar_dy_n_YGXC = np.zeros((self.NyG,self.NxC))
-                    self.qbar_dy_n_YCXG = np.zeros((self.NyC,self.NxG))
+                    self.dqdx_n_YCXC = np.zeros((self.NyC,self.NxC))
+                    self.dqdx_n_YGXC = np.zeros((self.NyG,self.NxC))
+                    self.dqdx_n_YCXG = np.zeros((self.NyC,self.NxG))
+
+                    self.dqdy_n_YCXC = np.zeros((self.NyC,self.NxC))
+                    self.dqdy_n_YGXC = np.zeros((self.NyG,self.NxC))
+                    self.dqdy_n_YCXG = np.zeros((self.NyC,self.NxG))
 
                     self.mod_grad_qbar_n_YGXC = np.zeros((self.NyG,self.NxC))
                     self.mod_grad_qbar_n_YCXG = np.zeros((self.NyC,self.NxG))
@@ -476,35 +480,33 @@ class Barotropic:
                     self.kappa_sum = np.zeros((self.NyC,self.NxC))
                     self.kappa_MEAN = np.zeros((len_T_MEAN,self.NyC,self.NxC))
 
-                    self.psibar_dx_n_YGXC = np.zeros((self.NyG,self.NxC))
-                    self.psibar_dy_n_YCXG = np.zeros((self.NyC,self.NxG))
+                    self.dpsidx_n_YGXC = np.zeros((self.NyG,self.NxC))
+                    self.dpsidy_n_YCXG = np.zeros((self.NyC,self.NxG))
 
-                    self.mod_grad_qbar_n_YCXC = np.zeros((len_T+1,self.NyC,self.NxC),dtype=object)
-                    self.kappa = np.zeros((len_T+1,self.NyC,self.NxC),dtype=object)
-                    self.qbar_dx_YCXC = np.zeros((len_T+1,self.NyC,self.NxC),dtype=object)
-                    self.qbar_dy_YCXC = np.zeros((len_T+1,self.NyC,self.NxC),dtype=object)
+                    self.mod_grad_qbar_n_YCXC = np.zeros((len_T+1,self.NyC,self.NxC))
+                    self.kappa = np.zeros((len_T+1,self.NyC,self.NxC))
                     self.Q_min_array = self.Q_min*np.ones((self.NyC,self.NxC))
                     self.K_min_array = self.K_min*np.ones((self.NyC,self.NxC))
 
                     self.qu_EDDY_n_YGXC = np.zeros((self.NyG,self.NxC))
                     self.qv_EDDY_n_YCXG = np.zeros((self.NyC,self.NxG))
-                    self.eddyFluxes = np.zeros((len_T+1,self.NyG,self.NxG),dtype=object)
+                    self.eddyFluxes = np.zeros((len_T+1,self.NyG,self.NxG))
                     self.eddyFluxes_n = np.zeros((self.NyG,self.NxG))
 
                     # scheme diagnostics 
                     self.enstrophyGen_n = np.zeros((self.NyC,self.NxC))
                     self.enstrophyGen_n_x_YGXC = np.zeros((self.NyG,self.NxC))
                     self.enstrophyGen_n_y_YCXG = np.zeros((self.NyC,self.NxG))
-                    self.enstrophyGen = np.zeros((len_T+1,self.NyC,self.NxC),dtype=object)
+                    self.enstrophyGen = np.zeros((len_T+1,self.NyC,self.NxC))
                     self.enstrophyGen_sum = np.zeros((self.NyC,self.NxC))
-                    self.enstrophyGen_MEAN = np.zeros((len_T_MEAN,self.NyC,self.NxC),dtype=object)
+                    self.enstrophyGen_MEAN = np.zeros((len_T_MEAN,self.NyC,self.NxC))
 
                     self.energyConv_n = np.zeros((self.NyC,self.NxC))
                     self.energyConv_n_x_YGXC = np.zeros((self.NyG,self.NxC))
                     self.energyConv_n_y_YCXG = np.zeros((self.NyC,self.NxG))
-                    self.energyConv = np.zeros((len_T+1,self.NyC,self.NxC),dtype=object)
+                    self.energyConv = np.zeros((len_T+1,self.NyC,self.NxC))
                     self.energyConv_sum = np.zeros((self.NyC,self.NxC))
-                    self.energyConv_MEAN = np.zeros((len_T_MEAN,self.NyC,self.NxC),dtype=object)
+                    self.energyConv_MEAN = np.zeros((len_T_MEAN,self.NyC,self.NxC))
 
                     # backscatter variables
                     self.volume_YCXC = np.sum(self.bathy_YCXC*self.dx*self.dy)
@@ -542,13 +544,13 @@ class Barotropic:
                     # dissiaption from bottom drag
                     self.BD_n = self.r_BD*self.xibar_n
                     # diffusion of vorticity
-                    #self.laplacian(var=self.xibar_n,mu=self.mu_xi_L,var_return='diffusion_L_n')
-                    #self.biharmonic(var=self.xibar_n,mu=self.mu_xi_B,var_return='diffusion_B_n')
+                    self.laplacian(var=self.xibar_n,mu=self.mu_xi_L,var_return='diffusion_L_n')
+                    self.biharmonic(var=self.xibar_n,mu=self.mu_xi_B,var_return='diffusion_B_n')
 
-                    self.xi_pad = np.pad(self.xibar_n,((1,1)),mode='edge')
+                    '''self.xi_pad = np.pad(self.xibar_n,((1,1)),mode='edge')
                     self.diff_xi = self.diffusion(var=self.xi_pad)[1:-1,1:-1]
                     self.diff_xi_pad = np.pad(self.diff_xi,((1,1)),mode='edge')
-                    self.diffusion_B_n = self.mu_xi_B*self.bathy_np*self.diffusion(var=self.diff_xi_pad)[1:-1,1:-1]
+                    self.diffusion_B_n = self.mu_xi_B*self.bathy_np*self.diffusion(var=self.diff_xi_pad)[1:-1,1:-1]'''
 
                     # eddy fluxes
                     self.schemeFunctionsDict['calc_K_Q']()
@@ -1320,7 +1322,11 @@ class Barotropic:
             'xi_xi': self.calc_xiSquare,
             'q': self.calc_q,
             'q_q': self.calc_qSquare,
-            'enstrophy': self.calc_enstrophy
+            'enstrophy': self.calc_enstrophy,
+            'u_YGXG': self.calc_uYGXG,
+            'v_YGXG': self.calc_vYGXG,
+            'u_u_YGXG': self.calc_uuYGXG,
+            'v_v_YGXG': self.calc_vvYGXG
         }
 
         self.diagnosticsCoordDict = {
@@ -1331,7 +1337,11 @@ class Barotropic:
             'xi_xi': ['T', 'YG', 'XG'],
             'q': ['T', 'YG', 'XG'],
             'q_q': ['T', 'YG', 'XG'],
-            'enstrophy': ['T', 'YG', 'XG']
+            'enstrophy': ['T', 'YG', 'XG'],
+            'u_YGXG': ['T','YG','XG'],
+            'v_YGXG': ['T','YG','XG'],
+            'u_u_YGXG': ['T','YG','XG'],
+            'v_v_YGXG': ['T','YG','XG']
         }
 
         self.diagnosticsMeanDict = {
@@ -1342,7 +1352,11 @@ class Barotropic:
             'xi_xi': 'xi_xi_MEAN',
             'q': 'q_MEAN',
             'q_q': 'q_q_MEAN',
-            'enstrophy': 'enstrophy_MEAN'
+            'enstrophy': 'enstrophy_MEAN',
+            'u_YGXG': 'u_YGXG_MEAN',
+            'v_YGXG': 'v_YGXG_MEAN',
+            'u_u_YGXG': 'u_u_YGXG_MEAN',
+            'v_v_YGXG': 'v_v_YGXG_MEAN'
         }
 
         self.diagnosticsNP1Dict = {
@@ -1353,7 +1367,11 @@ class Barotropic:
             'xi_xi': 'xi_xi_np1',
             'q': 'q_np1',
             'q_q': 'q_q_np1',
-            'enstrophy': 'enstrophy_np1'
+            'enstrophy': 'enstrophy_np1',
+            'u_YGXG': 'u_YGXG_np1',
+            'v_YGXG': 'v_YGXG_np1',
+            'u_u_YGXG': 'u_u_YGXG_np1',
+            'v_v_YGXG': 'v_v_YGXG_np1'
         }
 
         self.diagnosticsSumDict = {
@@ -1364,7 +1382,11 @@ class Barotropic:
             'xi_xi': 'xi_xi_sum',
             'q': 'q_sum',
             'q_q': 'q_q_sum',
-            'enstrophy': 'enstrophy_sum'
+            'enstrophy': 'enstrophy_sum',
+            'u_YGXG': 'u_YGXG_sum',
+            'v_YGXG': 'v_YGXG_sum',
+            'u_u_YGXG': 'u_u_YGXG_sum',
+            'v_v_YGXG': 'v_v_YGXG_sum'
         }
 
     def calc_xi_u(self,xi,psi,u,v,var_return):
@@ -1398,6 +1420,18 @@ class Barotropic:
     def calc_enstrophy(self,xi,psi,u,v,var_return):
 
         setattr(self,var_return,(np.array((self.f+xi)/self.bathy)**2)/2)
+
+    def calc_uYGXG(self,xi,psi,u,v,var_return):
+        setattr(self,var_return,(u + np.roll(u,1,0))/2)
+
+    def calc_vYGXG(self,xi,psi,u,v,var_return):
+        setattr(self,var_return,(v + np.roll(v,1,1))/2)
+
+    def calc_uuYGXG(self,xi,psi,u,v,var_return):
+        setattr(self,var_return,((u + np.roll(u,1,0))/2)**2)
+
+    def calc_vvYGXG(self,xi,psi,u,v,var_return):
+        setattr(self,var_return,((v + np.roll(v,1,1))/2)**2)
 
     ##########################################################################
     # PARAMETERIZATION
@@ -1510,13 +1544,13 @@ class Barotropic:
         self.K_n_YCXG = (self.K_n[:,1:] + self.K_n[:,:-1])/2 # YCXG [:,1:-1]
 
         # calculate dqdx at YGXC points
-        self.qbar_dx_n_YGXC = (self.qbar_n[:,1:] - self.qbar_n[:,:-1])/self.dx # YGXC
+        self.dqdx_n_YGXC = (self.qbar_n[:,1:] - self.qbar_n[:,:-1])/self.dx # YGXC
         # calculate dqdy at YCXG points
-        self.qbar_dy_n_YCXG = (self.qbar_n[1:,:] - self.qbar_n[:-1,:])/self.dy # YCXG
+        self.dqdy_n_YCXG = (self.qbar_n[1:,:] - self.qbar_n[:-1,:])/self.dy # YCXG
         # 4 point average of dqdx to YCXG points. do not calculate at boundaries.
-        self.qbar_dx_n_YCXG = (self.qbar_dx_n_YGXC[1:,:-1] + self.qbar_dx_n_YGXC[1:,1:] + self.qbar_dx_n_YGXC[:-1,1:] + self.qbar_dx_n_YGXC[:-1,:-1])/4 # YCXG
+        self.dqdx_n_YCXG = (self.qbar_dx_n_YGXC[1:,:-1] + self.qbar_dx_n_YGXC[1:,1:] + self.qbar_dx_n_YGXC[:-1,1:] + self.qbar_dx_n_YGXC[:-1,:-1])/4 # YCXG
         # 4 point average of dqdy to YGXC points. do not calculate at boundaries. 
-        self.qbar_dy_n_YGXC = (self.qbar_dy_n_YCXG[1:,:-1] + self.qbar_dy_n_YCXG[1:,1:] + self.qbar_dy_n_YCXG[:-1,:-1] + self.qbar_dy_n_YCXG[:-1,1:])/4 # YGXC
+        self.dqdy_n_YGXC = (self.qbar_dy_n_YCXG[1:,:-1] + self.qbar_dy_n_YCXG[1:,1:] + self.qbar_dy_n_YCXG[:-1,:-1] + self.qbar_dy_n_YCXG[:-1,1:])/4 # YGXC
         # calculate mod grad qbar on YGXC
         self.mod_grad_qbar_n_YGXC = np.sqrt(self.qbar_dx_n_YGXC[1:-1,:]**2 + self.qbar_dy_n_YGXC**2) # YGXC [1:-1,:]
         # calculate mod grad qbar on YCXG
@@ -1533,26 +1567,26 @@ class Barotropic:
         # calculate qv_EDDY = bar{q'v'} at YCXG points
         self.qv_EDDY_n_YCXG = -self.kappa_n_YCXG*self.qbar_dy_n_YCXG # YCXG [:,:]
         # calculate bar{q'u'}dqdx at YGXC points
-        self.enstrophyGen_n_x_YGXC = -self.kappa_n_YGXC*self.qbar_dx_n_YGXC**2 # YGXC
+        self.enstrophyGen_n_x_YGXC = self.qu_EDDY_n_YGXC*self.dqdx_n_YGXC # YGXC
         # calculate bqr{q'v'}dqdy at YCXG points
-        self.enstrophyGen_n_y_YCXG = -self.kappa_n_YCXG*self.qbar_dy_n_YCXG**2 # YCXG
+        self.enstrophyGen_n_y_YCXG = self.qv_EDDY_n_YCXG*self.dqdy_n_YCXG # YCXG
         # calculate enstrophy generation at YCXC points 
         self.enstrophyGen_n = (self.enstrophyGen_n_x_YGXC[1:,:] + self.enstrophyGen_n_x_YGXC[:-1,:] + self.enstrophyGen_n_y_YCXG[:,1:] + self.enstrophyGen_n_y_YCXG[:,:-1])/2 # YCXC
 
         # calculate dpsidx at YGXC points 
-        self.psibar_dx_n_YGXC = (self.psibar_n[:,1:] - self.psibar_n[:,:-1])/self.dx # YGXC
+        self.dpsidx_n_YGXC = (self.psibar_n[:,1:] - self.psibar_n[:,:-1])/self.dx # YGXC
         # calculate dpsidy at YCXG points
-        self.psibar_dy_n_YCXG = (self.psibar_n[1:,:] - self.psibar_n[:-1,:])/self.dy # YCXG
+        self.dpsidy_n_YCXG = (self.psibar_n[1:,:] - self.psibar_n[:-1,:])/self.dy # YCXG
         # calculate bar{q'u'}dpsidx at YGXC points
-        self.energyConv_n_x_YGXC = -self.kappa_n_YGXC*self.qbar_dx_n_YGXC*self.psibar_dx_n_YGXC # YGXC
+        self.energyConv_n_x_YGXC = self.qu_EDDY_n_YGXC*self.dpsidx_n_YGXC  # YGXC
         # calculate bar{q'v'}dpsidy at YCXG points
-        self.energyConv_n_y_YCXG = -self.kappa_n_YCXG*self.qbar_dy_n_YCXG*self.psibar_dy_n_YCXG # YCXG
+        self.energyConv_n_y_YCXG = self.qv_EDDY_n_YCXG*self.dpsidy_n_YCXG # YCXG
         # calculate energy conversion at YCXC points 
         self.energyConv_n = (self.energyConv_n_x_YGXC[1:,:] + self.energyConv_n_x_YGXC[:-1,:] + self.energyConv_n_y_YCXG[:,1:] + self.energyConv_n_y_YCXG[:,:-1])/2
 
         # calculate kappa_n at YCXC points 
-        self.qbar_dx_n_YCXC = (self.qbar_n[1:,1:] + self.qbar_n[:-1,1:] - self.qbar_n[1:,:-1] - self.qbar_n[:-1,:-1])/(2*self.dx) # YCXC
-        self.qbar_dy_n_YCXC = (self.qbar_n[1:,1:] + self.qbar_n[1:,:-1] - self.qbar_n[:-1,1:] - self.qbar_n[:-1,:-1])/(2*self.dy) # YCXC
+        self.dqdx_n_YCXC = (self.qbar_n[1:,1:] + self.qbar_n[:-1,1:] - self.qbar_n[1:,:-1] - self.qbar_n[:-1,:-1])/(2*self.dx) # YCXC
+        self.dqdy_n_YCXC = (self.qbar_n[1:,1:] + self.qbar_n[1:,:-1] - self.qbar_n[:-1,1:] - self.qbar_n[:-1,:-1])/(2*self.dy) # YCXC
         self.mod_grad_qbar_n_YCXC = np.sqrt(self.qbar_dx_n_YCXC**2 + self.qbar_dy_n_YCXC**2) # YCXC
         self.kappa_n = 2*self.gamma_q*np.sqrt(self.Q_n*self.K_n)/self.mod_grad_qbar_n_YCXC # YCXC
 
@@ -1647,13 +1681,12 @@ class Barotropic:
         self.eddyFluxes_n = np.zeros_like(self.xibar_n)
 
     def eddyFluxes_constant(self):
-        self.qbar_n = np.array((self.f + self.xibar_n)/self.bathy_np)
-        self.qbar_dx_n = self.dx_YGXG(var=self.qbar_n)
-        self.qbar_dy_n = self.dy_YGXG(var=self.qbar_n)
+        self.dqdx_n = self.dx_YGXG(var=self.qbar_n)
+        self.dqdy_n = self.dy_YGXG(var=self.qbar_n)
 
         # ZETA fluxes
-        self.flux_u_n = -self.kappa_q*self.bathy_np*self.qbar_dx_n
-        self.flux_v_n = -self.kappa_q*self.bathy_np*self.qbar_dy_n
+        self.flux_u_n = -self.kappa_q*self.bathy_np*self.dqdx_n
+        self.flux_v_n = -self.kappa_q*self.bathy_np*self.dqdy_n
 
         self.eddyFluxes_n = (1/(2*self.d))*(self.flux_v_n[2:,1:-1] - self.flux_v_n[:-2,1:-1] + self.flux_u_n[1:-1,2:] - self.flux_u_n[1:-1,:-2])
         self.eddyFluxes_n = np.pad(self.eddyFluxes_n,((1,1)),constant_values=0)
