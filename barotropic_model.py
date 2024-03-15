@@ -1548,13 +1548,19 @@ class Barotropic:
         # calculate dqdy at YCXG points
         self.dqdy_n_YCXG = (self.qbar_n[1:,:] - self.qbar_n[:-1,:])/self.dy # YCXG
         # 4 point average of dqdx to YCXG points. do not calculate at boundaries.
-        self.dqdx_n_YCXG = (self.qbar_dx_n_YGXC[1:,:-1] + self.qbar_dx_n_YGXC[1:,1:] + self.qbar_dx_n_YGXC[:-1,1:] + self.qbar_dx_n_YGXC[:-1,:-1])/4 # YCXG
+        self.dqdx_n_YCXG = (self.dqdx_n_YGXC[1:,:-1] + self.dqdx_n_YGXC[1:,1:] + self.dqdx_n_YGXC[:-1,1:] + self.dqdx_n_YGXC[:-1,:-1])/4 # YCXG
         # 4 point average of dqdy to YGXC points. do not calculate at boundaries. 
-        self.dqdy_n_YGXC = (self.qbar_dy_n_YCXG[1:,:-1] + self.qbar_dy_n_YCXG[1:,1:] + self.qbar_dy_n_YCXG[:-1,:-1] + self.qbar_dy_n_YCXG[:-1,1:])/4 # YGXC
+        self.dqdy_n_YGXC = (self.dqdy_n_YCXG[1:,:-1] + self.dqdy_n_YCXG[1:,1:] + self.dqdy_n_YCXG[:-1,:-1] + self.dqdy_n_YCXG[:-1,1:])/4 # YGXC
         # calculate mod grad qbar on YGXC
-        self.mod_grad_qbar_n_YGXC = np.sqrt(self.qbar_dx_n_YGXC[1:-1,:]**2 + self.qbar_dy_n_YGXC**2) # YGXC [1:-1,:]
+        self.mod_grad_qbar_n_YGXC = np.sqrt(self.dqdx_n_YGXC[1:-1,:]**2 + self.dqdy_n_YGXC**2) # YGXC [1:-1,:]
+        # set minimum value
+        self.mod_grad_qbar_n_YGXC = np.where(self.mod_grad_qbar_n_YGXC<self.min_val,\
+                                     self.min_val*np.ones_like(self.mod_grad_qbar_n_YGXC),self.mod_grad_qbar_n_YGXC)
         # calculate mod grad qbar on YCXG
-        self.mod_grad_qbar_n_YCXG = np.sqrt(self.qbar_dx_n_YCXG**2 + self.qbar_dy_n_YCXG[:,1:-1]**2) # YCXG [:,1:-1]
+        self.mod_grad_qbar_n_YCXG = np.sqrt(self.dqdx_n_YCXG**2 + self.dqdy_n_YCXG[:,1:-1]**2) # YCXG [:,1:-1]
+        # set minimum value
+        self.mod_grad_qbar_n_YCXG = np.where(self.mod_grad_qbar_n_YCXG<self.min_val,\
+                                     self.min_val*np.ones_like(self.mod_grad_qbar_n_YCXG),self.mod_grad_qbar_n_YCXG)
         # calculate kappa_q at YGXC and YCXG points. Set to zero on boundaries for zero flux BC. 
         self.kappa_n_YGXC = 2*self.gamma_q*np.sqrt(self.Q_n_YGXC*self.K_n_YGXC)/self.mod_grad_qbar_n_YGXC # YGXC [1:-1,:]
         self.kappa_n_YCXG = 2*self.gamma_q*np.sqrt(self.Q_n_YCXG*self.K_n_YCXG)/self.mod_grad_qbar_n_YCXG # YCXG [:,1:-1]
@@ -1563,9 +1569,9 @@ class Barotropic:
         # set kappa_n_YCXG to zero on the eastern and western boundaries 
         self.kappa_n_YCXG = np.pad(self.kappa_n_YCXG,((0,0),(1,1)),constant_values=0) # YCXG [:,:]
         # calculate qu_EDDY = bar{q'u'} at YGXC points
-        self.qu_EDDY_n_YGXC = -self.kappa_n_YGXC*self.qbar_dx_n_YGXC # YGXC [:,:]
+        self.qu_EDDY_n_YGXC = -self.kappa_n_YGXC*self.dqdx_n_YGXC # YGXC [:,:]
         # calculate qv_EDDY = bar{q'v'} at YCXG points
-        self.qv_EDDY_n_YCXG = -self.kappa_n_YCXG*self.qbar_dy_n_YCXG # YCXG [:,:]
+        self.qv_EDDY_n_YCXG = -self.kappa_n_YCXG*self.dqdy_n_YCXG # YCXG [:,:]
         # calculate bar{q'u'}dqdx at YGXC points
         self.enstrophyGen_n_x_YGXC = self.qu_EDDY_n_YGXC*self.dqdx_n_YGXC # YGXC
         # calculate bqr{q'v'}dqdy at YCXG points
@@ -1587,7 +1593,7 @@ class Barotropic:
         # calculate kappa_n at YCXC points 
         self.dqdx_n_YCXC = (self.qbar_n[1:,1:] + self.qbar_n[:-1,1:] - self.qbar_n[1:,:-1] - self.qbar_n[:-1,:-1])/(2*self.dx) # YCXC
         self.dqdy_n_YCXC = (self.qbar_n[1:,1:] + self.qbar_n[1:,:-1] - self.qbar_n[:-1,1:] - self.qbar_n[:-1,:-1])/(2*self.dy) # YCXC
-        self.mod_grad_qbar_n_YCXC = np.sqrt(self.qbar_dx_n_YCXC**2 + self.qbar_dy_n_YCXC**2) # YCXC
+        self.mod_grad_qbar_n_YCXC = np.sqrt(self.dqdx_n_YCXC**2 + self.dqdy_n_YCXC**2) # YCXC
         self.kappa_n = 2*self.gamma_q*np.sqrt(self.Q_n*self.K_n)/self.mod_grad_qbar_n_YCXC # YCXC
 
         # sum variables
@@ -1614,7 +1620,7 @@ class Barotropic:
 
         # diffuse enstrophy
         # add ghost points of edge values to ensure no flux through boundaries 
-        self.Q_n_ghost = np.pad(self.Q_n,((1,1)),mode='edge')
+        self.Q_n_ghost = np.pad(self.Q_n*self.bathy_YCXC,((1,1)),mode='edge')
         # calculate laplacian diffusion. outer (ghost) points will be set to zero. 
         self.laplacian(var=self.Q_n_ghost,mu=1,var_return='QDiff_L_n')
         # remove outer points and multiply by mu/H
@@ -1622,7 +1628,7 @@ class Barotropic:
 
         # diffuse energy
         # add ghost points of edge values to ensure no flux through boundaries
-        self.K_n_ghost = np.pad(self.K_n,((1,1)),mode='edge')
+        self.K_n_ghost = np.pad(self.K_n*self.bathy_YCXC,((1,1)),mode='edge')
         # calculate laplacian diffusion. outer (ghost) points will be set to zero. 
         self.laplacian(var=self.K_n_ghost,mu=1,var_return='KDiff_L_n')
         # remove outer points and multiply by mu/H
