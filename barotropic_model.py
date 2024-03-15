@@ -33,6 +33,8 @@ class Barotropic:
             self.Ly = int(d*Ny)
             self.XG = np.array([i*self.dx for i in range(self.Nx+1)])
             self.YG = np.array([j*self.dy for j in range(self.Ny+1)])
+            self.XGm1 = np.array([i*self.dx for i in range(self.Nx+1)])[1:-1]
+            self.YGm1 = np.array([j*self.dy for j in range(self.Ny+1)])[1:-1]
             self.XC = np.array([(i+0.5)*self.dx for i in range(self.Nx)])
             self.YC = np.array([(j+0.5)*self.dy for j in range(self.Ny)])
             self.NxC = self.Nx 
@@ -208,10 +210,10 @@ class Barotropic:
 
 
     def model(self,dt,Nt,dumpFreq,meanDumpFreq,\
-        r_BD,mu_xi_L,mu_xi_B,\
+        r_BD,mu_xi,\
             tau_0,rho_0,\
                 eddy_scheme=False,init_K=None,init_Q=None,gamma_q=None,mu_PAR=None,r_Q=None,\
-                    r_K=None,min_val=None,max_val=None,kappa_q=None,K_min=None,Q_min=None,backscatter_frac=None,diags=[]):
+                    r_K=None,min_val=None,max_val=None,kappa_q=None,K_min=None,Q_min=None,backscatter_frac=None,diags=[],dissipationTerm='biharmonic'):
 
         try:
             self.psibar_0
@@ -255,14 +257,16 @@ class Barotropic:
             
             if eddy_scheme == 'EGECAD_backscatter' and backscatter_frac == None:
                 raise ValueError('backscatter_frac must be specified when using backscatter scheme version.')
+            
+            if dissipationTerm != 'biharmonic' and dissipationTerm != 'laplacian' and dissipationTerm != 'laplacian_enstrophy' and dissipationTerm != 'laplacian_energy':
+                raise ValueError('dissipationTerm can be biharmonic, laplacian, laplacian_enstrophy or laplacian_energy')
 
             # store model parameters in object
             self.dt = dt
             self.Nt = Nt
             self.gamma_q = gamma_q
             self.r_BD = r_BD
-            self.mu_xi_L = mu_xi_L
-            self.mu_xi_B = mu_xi_B
+            self.mu_xi = mu_xi
             self.tau_0 = tau_0 
             self.rho_0 = rho_0
             self.dumpFreq = dumpFreq
@@ -278,6 +282,7 @@ class Barotropic:
             self.max_val = max_val
             self.kappa_q = kappa_q
             self.backscatter_frac = backscatter_frac
+            self.dissipationTerm = dissipationTerm
 
             # if initial u and v do not already exist, calculate them
             try:
@@ -357,6 +362,16 @@ class Barotropic:
                 # create variable for summing snapshot data for use in calculating mean, e.g. self.xi_u_sum. 
                 # Should be updated every timestep. 
                 setattr(self,self.diagnosticsSumDict[var],getattr(self,var)[0])
+
+            # initialise dissipation terms
+            self.dissipationDict()
+            if self.dissipationTerm == 'laplacian_enstrophy':
+                self.dxidx = np.zeros((self.NyG,self.NxG))
+                self.dxidy = np.zeros((self.NyG,self.NxG))
+            elif self.dissipationTerm == 'laplacian_energy':
+                self.dHxidx = np.zeros((self.NyG,self.NxG))
+                self.dHxidy = np.zeros((self.NyG,self.NxG))
+            self.dissipation_n = np.zeros((self.NyG,self.NxG))
             
             # initialise parameters for time stepping
             self.F_n = np.zeros_like(self.xibar_n)
@@ -364,9 +379,6 @@ class Barotropic:
             self.F_nm2 = np.zeros_like(self.xibar_n)
             self.adv_n = np.zeros_like(self.xibar_n)
             self.BD_n = np.zeros_like(self.xibar_n)
-            self.diffusion_L_n = np.zeros_like(self.xibar_n)
-            self.diffusion_B_n = np.zeros_like(self.xibar_n)
-            self.diffusion_B_n_mid = np.zeros_like(self.xibar_n)
             self.zeta_n = np.zeros_like(self.xibar_n)
             self.psiYCXC_n = np.zeros((self.Ny,self.Nx))
 
@@ -544,8 +556,10 @@ class Barotropic:
                     # dissiaption from bottom drag
                     self.BD_n = self.r_BD*self.xibar_n
                     # diffusion of vorticity
-                    self.laplacian(var=self.xibar_n,mu=self.mu_xi_L,var_return='diffusion_L_n')
-                    self.biharmonic(var=self.xibar_n,mu=self.mu_xi_B,var_return='diffusion_B_n')
+                    #self.laplacian(var=self.xibar_n,mu=self.mu_xi_L,var_return='diffusion_L_n')
+                    #self.biharmonic(var=self.xibar_n,mu=self.mu_xi_B,var_return='diffusion_B_n')
+
+                    self.dissipationFunctionDict['dissipationFunc'](var=self.xibar_n,mu=self.mu_xi,var_return='dissipation_n')
 
                     '''self.xi_pad = np.pad(self.xibar_n,((1,1)),mode='edge')
                     self.diff_xi = self.diffusion(var=self.xi_pad)[1:-1,1:-1]
@@ -557,7 +571,7 @@ class Barotropic:
                     self.schemeFunctionsDict['KQ_timestep'](scheme=scheme)
                     self.schemeFunctionsDict['calc_eddyFluxes']()
                     # F_n
-                    self.F_n = self.adv_n - self.eddyFluxes_n - self.BD_n + self.diffusion_L_n - self.diffusion_B_n + np.array(self.wind_stress)
+                    self.F_n = self.adv_n - self.eddyFluxes_n - self.BD_n + self.dissipation_n + np.array(self.wind_stress)
                     # calculate new value of xibar
                     self.xibar_np1 = scheme(var_n=self.xibar_n,dt=self.dt,F_n=self.F_n,F_nm1=self.F_nm1,F_nm2=self.F_nm2)
                     # set xi to zero on boundaries
@@ -619,7 +633,7 @@ class Barotropic:
 
                             # variables for enstrophy issue 
                             # delete once problem solved
-                            self.energyCheck[self.index-1] = self.psibar_n*self.adv_n
+                            '''self.energyCheck[self.index-1] = self.psibar_n*self.adv_n
                             self.biharm_term[self.index-1] = self.diffusion_B_n
                             self.advection[self.index-1] = self.adv_n
                             self.q_biharm[self.index-1] = self.qbar_n*self.diffusion_B_n 
@@ -629,7 +643,7 @@ class Barotropic:
                             self.Q_advection[self.index-1] = self.QAdv_n
                             self.K_advection[self.index-1] = self.KAdv_n
                             self.Q_damping[self.index-1] = (self.Q_n - self.Q_min_array)*self.r_Q
-                            self.K_damping[self.index-1] = (self.K_n - self.K_min_array)*self.r_K
+                            self.K_damping[self.index-1] = (self.K_n - self.K_min_array)*self.r_K'''
 
                     # DUMP MEAN DATA
                     if kw.get('t')%kw.get('meanDumpFreq') == 0:
@@ -739,14 +753,15 @@ class Barotropic:
                     XG = self.XG,
                     YC = self.YC,
                     XC = self.XC,
+                    YGm1 = self.YGm1,
+                    XGm1 = self.XGm1,
                     T_MEAN = self.T_MEAN,
                 ),
                 attrs = dict(
                     dt = self.dt,
                     Nt = self.Nt,
                     r_BD = self.r_BD,
-                    mu_xi_L = self.mu_xi_L,
-                    mu_xi_B = self.mu_xi_B,
+                    mu_xi = self.mu_xi,
                     tau_0 = self.tau_0,
                     rho_0 = self.rho_0,
                     dumpFreq = self.dumpFreq,
@@ -756,7 +771,8 @@ class Barotropic:
                     Nx = self.Nx,
                     Ny = self.Ny,
                     f0 = self.f0,
-                    beta = self.beta
+                    beta = self.beta,
+                    dissipationTerm = self.dissipationTerm
                 ) 
 
             )
@@ -1113,12 +1129,59 @@ class Barotropic:
     def laplacian(self,var,mu,var_return):
         setattr(self,var_return,self.diffusion(var=np.array(var))*mu)
 
+    def laplacian_enstrophy(self,var,mu,var_return):
+        # dissipation term is H div((1/H) * grad xi) with boundary condition grad xi = 0
+
+        # calculate dxi/dx and dxi/dy using centred difference
+        # set to zero on the boundary
+        self.dxidx  = np.pad((self.xibar_n[1:-1,2:] - self.xibar_n[1:-1,:-2])/(2*self.dx),((1,1)),constant_values=0)
+        self.dxidy = np.pad((self.xibar_n[2:,1:-1] - self.xibar_n[:-2,1:-1])/(2*self.dy),((1,1)),constant_values=0)
+
+        setattr(self,var_return,mu*np.pad(self.bathy_np[1:-1,1:-1]*\
+                                       (((self.dxidx[1:-1,2:]/self.bathy_np[1:-1,2:]) - (self.dxidx[1:-1,:-2]/self.bathy_np[1:-1,:-2]))/(2*self.dx) + \
+                                        ((self.dxidy[2:,1:-1]/self.bathy_np[2:,1:-1]) - (self.dxidy[:-2,1:-1]/self.bathy_np[2:,1:-1]))/(self.dy)),\
+                                            ((1,1)),constant_values=0))
+    
+    def laplacian_energy(self,var,mu,var_return):
+        # dissipation term is div((1/H) * grad(H*xi)) with boundary conditions psi = 0 and xi = 0
+
+        # calculate d H*xi /dx and d H*xi /dy calculating values at boundaries
+        self.dHxidx = self.dx_YGXG(var=self.bathy_np*self.xibar_n)
+        self.dHxidy = self.dy_YGXG(var=self.bathy_np*self.xibar_n)
+
+        setattr(self,var_return,mu*np.pad((((self.dHxidx[1:-1,2:]/self.bathy_np[1:-1,2:]) - (self.dHxidx[1:-1,:-2]/self.bathy_np[1:-1,:-2]))/(2*self.dx) + \
+                                           ((self.dHxidy[2:,1:-1]/self.bathy_np[2:,1:-1]) - (self.dHxidy[:-2,1:-1]/self.bathy_np[:-2,1:-1]))/(2*self.dy)),\
+                                            ((1,1)),constant_values=0))
+
     def biharmonic(self,var,mu,var_return):
-        setattr(self,var_return,mu*self.diffusion(var=self.diffusion(var=np.array(var))))
+        setattr(self,var_return,-mu*self.diffusion(var=self.diffusion(var=np.array(var))))
 
     def diffusion(self,var): 
 
         return np.pad((1/self.d**2)*(var[1:-1,2:] + var[1:-1,:-2] + var[2:,1:-1] + var[:-2,1:-1] - 4*var[1:-1,1:-1]),((1,1)),constant_values=0)
+    
+    def dissipationDict(self):
+
+        if self.dissipationTerm == 'biharmonic':
+            print('Biharmonic diffusion')
+            self.dissipationFunctionDict = {
+                'dissipationFunc': self.biharmonic
+            }
+        elif self.dissipationTerm == 'laplacian':
+            print('Laplacian diffusion')
+            self.dissipationFunctionDict = {
+                'dissipationFunc': self.laplacian
+            }
+        elif self.dissipationTerm == 'laplacian_enstrophy':
+            print('Enstrophy sink form of Laplacian diffusion')
+            self.dissipationFunctionDict = {
+                'dissipationFunc': self.laplacian_enstrophy
+            }
+        elif self.dissipationTerm == 'laplacian_energy':
+            print('Energy sink form of Laplacian diffusion')
+            self.dissipationFunctionDict = {
+                'dissipationFunc': self.laplacian_energy
+            }
 
     ##########################################################################
     # UV FUNCTIONS
@@ -1338,10 +1401,10 @@ class Barotropic:
             'q': ['T', 'YG', 'XG'],
             'q_q': ['T', 'YG', 'XG'],
             'enstrophy': ['T', 'YG', 'XG'],
-            'u_YGXG': ['T','YG','XG'],
-            'v_YGXG': ['T','YG','XG'],
-            'u_u_YGXG': ['T','YG','XG'],
-            'v_v_YGXG': ['T','YG','XG']
+            'u_YGXG': ['T','YGm1','XG'],
+            'v_YGXG': ['T','YG','XGm1'],
+            'u_u_YGXG': ['T','YGm1','XG'],
+            'v_v_YGXG': ['T','YG','XGm1']
         }
 
         self.diagnosticsMeanDict = {
@@ -1422,16 +1485,16 @@ class Barotropic:
         setattr(self,var_return,(np.array((self.f+xi)/self.bathy)**2)/2)
 
     def calc_uYGXG(self,xi,psi,u,v,var_return):
-        setattr(self,var_return,(u + np.roll(u,1,0))/2)
+        setattr(self,var_return,(u[1:] + u[:-1])/2)
 
     def calc_vYGXG(self,xi,psi,u,v,var_return):
-        setattr(self,var_return,(v + np.roll(v,1,1))/2)
+        setattr(self,var_return,(v[:,1:] + v[:,:-1])/2)
 
     def calc_uuYGXG(self,xi,psi,u,v,var_return):
-        setattr(self,var_return,((u + np.roll(u,1,0))/2)**2)
+        setattr(self,var_return,((u[1:] + u[:-1])/2)**2)
 
     def calc_vvYGXG(self,xi,psi,u,v,var_return):
-        setattr(self,var_return,((v + np.roll(v,1,1))/2)**2)
+        setattr(self,var_return,(((v[:,1:] + v[:,:-1])/2)**2))
 
     ##########################################################################
     # PARAMETERIZATION
@@ -1439,8 +1502,8 @@ class Barotropic:
 
     def schemeDict(self):
         if self.eddy_scheme != 'EGEC' and self.eddy_scheme != 'EGEC_TEST' and self.eddy_scheme != 'EGECAD' and self.eddy_scheme != 'EGECAD_TEST' \
-            and self.eddy_scheme != 'constant' and self.eddy_scheme != 'EGECAD_backscatter' and self.eddy_scheme != False and self.eddy_scheme != 'AdvectionOnly':
-            raise ValueError('scheme parameter should be set to \'EGEC\', \'EGECAD\' or False.')
+            and self.eddy_scheme != 'constant' and self.eddy_scheme != 'EGECADB' and self.eddy_scheme != False and self.eddy_scheme != 'AdvectionOnly':
+            raise ValueError('scheme parameter should be set to \'EGEC\', \'EGECAD\' , \'EGECADB\' or False.')
 
         if self.eddy_scheme == 'EGEC':
             print('Energy conversion and enstrophy generation only. Calculates eddy fluxes.')
@@ -1484,7 +1547,7 @@ class Barotropic:
                 'KQ_timestep' : self.timestep_KQ,
                 'calc_eddyFluxes': self.noEddyFluxes
             }
-        elif self.eddy_scheme == 'EGECAD_backscatter':
+        elif self.eddy_scheme == 'EGECADB':
             print('Full scheme. Includes EKE backscatter term.')
             self.schemeFunctionsDict = {
                 'calc_K_Q': self.K_Q_EGECADB,
@@ -1643,7 +1706,7 @@ class Barotropic:
         self.K_Q_EGECAD()
 
         # backscatter term
-        backscatter_integrand = self.psibar_n*self.diffusion_B_n # YGXG
+        backscatter_integrand = -self.psibar_n*self.dissipation_n # YGXG
         backscatter_integrand_YCXC = (backscatter_integrand[1:,1:] + backscatter_integrand[1:,:-1] + \
             backscatter_integrand[:-1,1:] + backscatter_integrand[:-1,:-1])/4 # YCXC
         backscatter_integral = np.sum(backscatter_integrand_YCXC*self.dx*self.dy) # volume integral
@@ -1702,19 +1765,19 @@ class Barotropic:
 
 #%%
 
-'''d = 50000 # m
-Nx = 20
-Ny = 20
+'''d = 5000 # m
+Nx = 200
+Ny = 200
 Lx = d*Nx # m
 Ly = d*Ny # m
 f0 = 0.7E-4 # s-1
 beta = 0 # m-1s-1
 # VORTICITY PARAMETERS
 r_BD = 0
-mu_xi_B = 1.E11
-mu_xi_L = 0
+mu_xi = 10
+dissipationTerm = 'laplacian_energy'
 # EDDY SCHEME PARAMETERS
-mu_PAR = 500*5000
+mu_PAR = 500
 r_Q = 5.E-8
 r_K = 0
 Q_min = 0
@@ -1728,12 +1791,12 @@ tau_0 = 0
 rho_0 = 1025
 # TIME STEPPING
 dt = 900
-Nt = 10
-dumpFreq =  900
-meanDumpFreq = 9000
+Nt = 9600
+dumpFreq =  86400
+meanDumpFreq = 864000
 diagnostics = ['xi_u','xi_v','u_u','v_v','xi_xi','q','q_q']
 
-bathy_random = np.load('./../barotropic_model_analysis/model_data/FDT_MOUNT_50km_f/randomTopography_50km_new.npy')
+bathy_random = np.load('./../barotropic_model_analysis/model_data/FDT_MOUNT_5km_f/randomTopography_5km.npy')
 #bathy_flat = 500*np.ones((Ny+1,Nx+1))
 
 domain = Barotropic(d=d,Nx=Nx,Ny=Ny,bathy=bathy_random,f0=f0,beta=beta)'''
@@ -1745,24 +1808,24 @@ domain = Barotropic(d=d,Nx=Nx,Ny=Ny,bathy=bathy_random,f0=f0,beta=beta)'''
 init_Q = 1.E-20*np.ones((Ny,Nx))
 print(np.shape(init_Q))'''
 
-'''init_psi = np.zeros((Ny+1,Nx+1))
-#init_psi = np.load('./../barotropic_model_analysis/model_data/FDT_MOUNT_50km_f/initPsi_50km.npy')
+'''#init_psi = np.zeros((Ny+1,Nx+1))
+init_psi = np.load('./../barotropic_model_analysis/model_data/FDT_MOUNT_5km_f/initPsi_5km.npy')
 domain.init_psi(init_psi)
-domain.xi_from_psi()
+domain.xi_from_psi()'''
 
 
 #%%
 
-data = domain.model(dt=dt,\
+'''data = domain.model(dt=dt,\
     Nt=Nt,\
         r_BD=r_BD,\
-            mu_xi_L=mu_xi_L,\
-                mu_xi_B=mu_xi_B,\
-                    tau_0=tau_0,\
-                        rho_0=rho_0,\
-                            dumpFreq=dumpFreq,\
-                                meanDumpFreq=meanDumpFreq,\
-                                    diags=diagnostics)'''
+            mu_xi=mu_xi,\
+                tau_0=tau_0,\
+                    rho_0=rho_0,\
+                        dumpFreq=dumpFreq,\
+                            meanDumpFreq=meanDumpFreq,\
+                                diags=diagnostics,\
+                                    dissipationTerm=dissipationTerm)'''
 
 '''data = domain.model(dt=dt,\
     Nt=Nt,\
@@ -1788,7 +1851,12 @@ data = domain.model(dt=dt,\
                                                                                     diags=diagnostics)'''
 
 #%%
-'''t = 5
+'''t = 0
+plt.contourf(data.XG,data.YG,data.psi[t])
+plt.colorbar()
+plt.show()
+
+t = -1
 plt.contourf(data.XG,data.YG,data.psi[t])
 plt.colorbar()
 plt.show()'''
