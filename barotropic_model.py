@@ -633,17 +633,17 @@ class Barotropic:
 
                             # variables for enstrophy issue 
                             # delete once problem solved
-                            '''self.energyCheck[self.index-1] = self.psibar_n*self.adv_n
-                            self.biharm_term[self.index-1] = self.diffusion_B_n
+                            self.energyCheck[self.index-1] = self.psibar_n*self.adv_n
+                            self.biharm_term[self.index-1] = self.dissipation_n
                             self.advection[self.index-1] = self.adv_n
-                            self.q_biharm[self.index-1] = self.qbar_n*self.diffusion_B_n 
-                            self.psi_biharm[self.index-1] = self.psibar_n*self.diffusion_B_n
+                            self.q_biharm[self.index-1] = self.qbar_n*self.dissipation_n 
+                            self.psi_biharm[self.index-1] = self.psibar_n*self.dissipation_n
                             self.Q_diffusion[self.index-1] = self.QDiff_L_n
                             self.K_diffusion[self.index-1] = self.KDiff_L_n 
                             self.Q_advection[self.index-1] = self.QAdv_n
                             self.K_advection[self.index-1] = self.KAdv_n
                             self.Q_damping[self.index-1] = (self.Q_n - self.Q_min_array)*self.r_Q
-                            self.K_damping[self.index-1] = (self.K_n - self.K_min_array)*self.r_K'''
+                            self.K_damping[self.index-1] = (self.K_n - self.K_min_array)*self.r_K
 
                     # DUMP MEAN DATA
                     if kw.get('t')%kw.get('meanDumpFreq') == 0:
