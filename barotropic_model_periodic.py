@@ -318,7 +318,6 @@ class Barotropic:
             self.BD_n = np.zeros_like(self.xibar_n)
             self.diffusion_L_n = np.zeros_like(self.xibar_n)
             self.diffusion_B_n = np.zeros_like(self.xibar_n)
-            self.diffusion_B_n_mid = np.zeros_like(self.xibar_n)
             self.zeta_n = np.zeros_like(self.xibar_n)
 
             # calculate wind stress
@@ -448,6 +447,8 @@ class Barotropic:
                     self.KE_backscatter_n = 0
                     self.KE_backscatter_sum = 0
                     self.KE_backscatter_MEAN = np.zeros(len_T_MEAN)
+                    self.q_biharm = np.zeros((len_T+1,self.NyG,self.NxG))
+                    self.psi_biharm = np.zeros((len_T+1,self.NyG,self.NxG))
 
                 
             else:
@@ -458,7 +459,16 @@ class Barotropic:
                 self.K_n = np.zeros((self.NyC,self.NxC))
                 self.K_np1 = np.zeros((self.NyC,self.NxC))
 
-            self.advection = np.zeros((self.Nt,self.NyG,self.NxG))
+            self.Q_diffusion = np.zeros((len_T+1,self.NyC,self.NxC))
+            self.K_diffusion = np.zeros((len_T+1,self.NyC,self.NxC))
+            self.Q_advection = np.zeros((len_T+1,self.NyC,self.NxC))
+            self.K_advection = np.zeros((len_T+1,self.NyC,self.NxC))
+            self.Q_damping = np.zeros((len_T+1,self.NyC,self.NxC))
+            self.K_damping = np.zeros((len_T+1,self.NyC,self.NxC))
+
+            self.xi_diffusion_B = np.zeros((len_T+1,self.NyG,self.NxG))
+            self.xi_diffusion_L = np.zeros((len_T+1,self.NyG,self.NxG))
+            self.xi_advection = np.zeros((len_T+1,self.NyG,self.NxG))
 
             # run scheemeDict function to get schemeFunctionsDict which contains functions to run if scheme is True or False
             self.schemeDict()
@@ -487,6 +497,7 @@ class Barotropic:
                     self.schemeFunctionsDict['calc_K_Q']()
                     self.schemeFunctionsDict['KQ_timestep'](scheme=scheme)
                     self.schemeFunctionsDict['calc_eddyFluxes']()
+
                     # F_n
                     self.F_n = self.adv_n - self.eddyFluxes_n - self.BD_n + self.diffusion_L_n - self.diffusion_B_n + np.array(self.wind_stress)
                     # calculate new value of xibar
@@ -531,6 +542,9 @@ class Barotropic:
                         self.psibar[self.index] = self.psibar_np1
                         self.ubar[self.index] = self.ubar_np1
                         self.vbar[self.index] = self.vbar_np1
+                        self.xi_diffusion_B[self.index] = self.diffusion_B_n
+                        self.xi_diffusion_L[self.index] = self.diffusion_L_n
+                        self.xi_advection[self.index] = self.adv_n
 
                         # run diagnostics 
                         for var in diags:
@@ -547,6 +561,8 @@ class Barotropic:
                             self.energyConv[self.index] = self.energyConv_n
                             self.eddyFluxes[self.index] = self.eddyFluxes_n
                             self.KE_backscatter[self.index] = self.KE_backscatter_n
+                            self.q_biharm[self.index-1] = self.qbar_n*self.diffusion_B_n 
+                            self.psi_biharm[self.index-1] = self.psibar_n*self.diffusion_B_n
 
                             # variables for enstrophy issue 
                             # delete once problem solved
@@ -554,13 +570,13 @@ class Barotropic:
                             self.biharm_term[self.index-1] = self.diffusion_B_n
                             self.advection[self.index-1] = self.adv_n
                             self.q_biharm[self.index-1] = self.qbar_n*self.diffusion_B_n 
-                            self.psi_biharm[self.index-1] = self.psibar_n*self.diffusion_B_n
-                            self.Q_diffusion[self.index-1] = self.QDiff_L_n
-                            self.K_diffusion[self.index-1] = self.KDiff_L_n 
-                            self.Q_advection[self.index-1] = self.QAdv_n
-                            self.K_advection[self.index-1] = self.KAdv_n
-                            self.Q_damping[self.index-1] = (self.Q_n - self.Q_min_array)*self.r_Q
-                            self.K_damping[self.index-1] = (self.K_n - self.K_min_array)*self.r_K'''
+                            self.psi_biharm[self.index-1] = self.psibar_n*self.diffusion_B_n'''
+                            self.Q_diffusion[self.index] = self.QDiff_L_n
+                            self.K_diffusion[self.index] = self.KDiff_L_n 
+                            self.Q_advection[self.index] = self.QAdv_n
+                            self.K_advection[self.index] = self.KAdv_n
+                            self.Q_damping[self.index] = (self.Q_n - self.Q_min_array)*self.r_Q
+                            self.K_damping[self.index] = (self.K_n - self.K_min_array)*self.r_K
 
                     # DUMP MEAN DATA
                     if kw.get('t')%kw.get('meanDumpFreq') == 0:
@@ -957,6 +973,116 @@ class Barotropic:
                     }
                 )
 
+                dataset_return['Q_diffusion'] = xr.DataArray(
+                    self.Q_diffusion.astype('float64'),
+                    dims = ['T','YC','XC'],
+                    coords = {
+                        'T': self.T,
+                        'YC': self.YC,
+                        'XC': self.XC
+                    }
+                )
+
+                dataset_return['K_diffusion'] = xr.DataArray(
+                    self.K_diffusion.astype('float64'),
+                    dims = ['T','YC','XC'],
+                    coords = {
+                        'T': self.T,
+                        'YC': self.YC,
+                        'XC': self.XC
+                    }
+                )
+
+                dataset_return['Q_advection'] = xr.DataArray(
+                    self.Q_advection.astype('float64'),
+                    dims = ['T','YC','XC'],
+                    coords = {
+                        'T': self.T,
+                        'YC': self.YC,
+                        'XC': self.XC
+                    }
+                )
+
+                dataset_return['K_advection'] = xr.DataArray(
+                    self.K_advection.astype('float64'),
+                    dims = ['T','YC','XC'],
+                    coords = {
+                        'T': self.T,
+                        'YC': self.YC,
+                        'XC': self.XC
+                    }
+                )
+
+                dataset_return['Q_damping'] = xr.DataArray(
+                    self.Q_damping.astype('float64'),
+                    dims = ['T','YC','XC'],
+                    coords = {
+                        'T': self.T,
+                        'YC': self.YC,
+                        'XC': self.XC
+                    }
+                )
+
+                dataset_return['K_damping'] = xr.DataArray(
+                    self.K_damping.astype('float64'),
+                    dims = ['T','YC','XC'],
+                    coords = {
+                        'T': self.T,
+                        'YC': self.YC,
+                        'XC': self.XC
+                    }
+                )
+
+                dataset_return['xi_diffusion_B'] = xr.DataArray(
+                    self.xi_diffusion_B.astype('float64'),
+                    dims = ['T','YG','XG'],
+                    coords = {
+                        'T': self.T,
+                        'YG': self.YG,
+                        'XG': self.XG
+                    }
+                )
+
+                dataset_return['xi_diffusion_L'] = xr.DataArray(
+                    self.xi_diffusion_L.astype('float64'),
+                    dims = ['T','YG','XG'],
+                    coords = {
+                        'T': self.T,
+                        'YG': self.YG,
+                        'XG': self.XG
+                    }
+                )
+
+                dataset_return['xi_advection'] = xr.DataArray(
+                    self.xi_advection.astype('float64'),
+                    dims = ['T','YG','XG'],
+                    coords = {
+                        'T': self.T,
+                        'YG': self.YG,
+                        'XG': self.XG
+                    }
+                )
+
+                dataset_return['q_biharmonic'] = xr.DataArray(
+                self.q_biharm.astype('float64'),
+                dims = ['T','YG','XG'],
+                coords = {
+                    'T': self.T,
+                    'YG': self.YG,
+                    'XG': self.XG
+                }
+            )
+
+            dataset_return['psi_biharmonic'] = xr.DataArray(
+                self.psi_biharm.astype('float64'),
+                dims = ['T','YG','XG'],
+                coords = {
+                    'T': self.T,
+                    'YG': self.YG,
+                    'XG': self.XG
+                }
+            )
+
             return dataset_return
         
     ##########################################################################
@@ -1003,8 +1129,8 @@ class Barotropic:
 
     def calc_UV(self,psi,u_return,v_return):
 
-        self.__dict__[u_return] = -(2/self.d)*((np.roll(psi,-1,0) - psi)/self.bathy_YCXG)
-        self.__dict__[v_return] = (2/self.d)*((np.roll(psi,-1,1) - psi)/self.bathy_YGXC)
+        self.__dict__[u_return] = -(1/self.d)*((np.roll(psi,-1,0) - psi)/self.bathy_YCXG)
+        self.__dict__[v_return] = (1/self.d)*((np.roll(psi,-1,1) - psi)/self.bathy_YGXC)
 
     ##########################################################################
     # ELLIPTIC FUNCTIONS
@@ -1252,13 +1378,6 @@ class Barotropic:
     ##########################################################################
     # INTERPOLATION FUNCTIONS
     ##########################################################################
-        
-    def interp_y(self,var):
-        return (np.vstack((var,var[0])) + np.vstack((var[-1],var)))/2
-    
-    def interp_x(self,var):
-        return (np.transpose(np.vstack((np.transpose(var),np.transpose(var)[0]))) + \
-             np.transpose(np.vstack((np.transpose(var)[-1],np.transpose(var)))))/2
     
     def interp_y(self,var):
         # interpolates var (YCXC or YCXG) in y direction
@@ -1310,8 +1429,8 @@ class Barotropic:
 
     def schemeDict(self):
         if self.eddy_scheme != 'EGEC' and self.eddy_scheme != 'EGEC_TEST' and self.eddy_scheme != 'EGECAD' and self.eddy_scheme != 'EGECAD_TEST' \
-            and self.eddy_scheme != 'constant' and self.eddy_scheme != 'EGECAD_backscatter' and self.eddy_scheme != False and self.eddy_scheme != 'AdvectionOnly':
-            raise ValueError('scheme parameter should be set to \'EGEC\', \'EGECAD\' or False.')
+            and self.eddy_scheme != 'constant' and self.eddy_scheme != 'EGECADB' and self.eddy_scheme != False and self.eddy_scheme != 'AdvectionOnly':
+            raise ValueError('scheme parameter should be set to \'EGEC\', \'EGECAD\', \'EGECADB\' or False.')
 
         if self.eddy_scheme == 'EGEC':
             print('Energy conversion and enstrophy generation only. Calculates eddy fluxes.')
@@ -1403,8 +1522,8 @@ class Barotropic:
         self.mod_grad_qbar_n_YCXG = np.where(self.mod_grad_qbar_n_YCXG<self.min_val,\
                                      self.min_val*np.ones_like(self.mod_grad_qbar_n_YCXG),self.mod_grad_qbar_n_YCXG)
         # calculate kappa_q at YGXC and YCXG points. Set to zero on boundaries for zero flux BC. 
-        self.kappa_n_YGXC = 2*self.gamma_q*np.sqrt(self.Q_n_YGXC*self.K_n_YGXC)/self.mod_grad_qbar_n_YGXC # YGXC 
-        self.kappa_n_YCXG = 2*self.gamma_q*np.sqrt(self.Q_n_YCXG*self.K_n_YCXG)/self.mod_grad_qbar_n_YCXG # YCXG 
+        self.kappa_n_YGXC = (2*self.gamma_q*np.sqrt(self.Q_n_YGXC*self.K_n_YGXC))/self.mod_grad_qbar_n_YGXC # YGXC 
+        self.kappa_n_YCXG = (2*self.gamma_q*np.sqrt(self.Q_n_YCXG*self.K_n_YCXG))/self.mod_grad_qbar_n_YCXG # YCXG 
         # calculate qu_EDDY = bar{q'u'} at YGXC points
         self.qu_EDDY_n_YGXC = -self.kappa_n_YGXC*self.dqdx_n_YGXC # YGXC 
         # calculate qv_EDDY = bar{q'v'} at YCXG points
@@ -1414,7 +1533,8 @@ class Barotropic:
         # calculate bqr{q'v'}dqdy at YCXG points
         self.enstrophyGen_n_y_YCXG = self.qv_EDDY_n_YCXG*self.dqdy_n_YCXG # YCXG
         # calculate enstrophy generation at YCXC points 
-        self.enstrophyGen_n = (np.roll(self.enstrophyGen_n_x_YGXC,-1,1) + self.enstrophyGen_n_x_YGXC + np.roll(self.enstrophyGen_n_y_YCXG,-1,0) + self.enstrophyGen_n_y_YCXG)/2 # YCXC
+        self.enstrophyGen_n = (np.roll(self.enstrophyGen_n_x_YGXC,-1,0) + self.enstrophyGen_n_x_YGXC + \
+                               np.roll(self.enstrophyGen_n_y_YCXG,-1,1) + self.enstrophyGen_n_y_YCXG)/2 # YCXC
 
         # calculate dpsidx at YGXC points 
         self.dpsidx_n_YGXC = self.dx_YGXG(var=self.psibar_n) # YGXC
@@ -1425,8 +1545,8 @@ class Barotropic:
         # calculate bar{q'v'}dpsidy at YCXG points
         self.energyConv_n_y_YCXG = self.qv_EDDY_n_YCXG*self.dpsidy_n_YCXG # YCXG
         # calculate energy conversion at YCXC points 
-        self.energyConv_n = (np.roll(self.energyConv_n_x_YGXC,-1,1) + self.energyConv_n_x_YGXC + \
-                             np.roll(self.energyConv_n_y_YCXG,-1,0) + self.energyConv_n_y_YCXG)/2 # YCXC
+        self.energyConv_n = (np.roll(self.energyConv_n_x_YGXC,-1,0) + self.energyConv_n_x_YGXC + \
+                             np.roll(self.energyConv_n_y_YCXG,-1,1) + self.energyConv_n_y_YCXG)/2 # YCXC
 
         # calculate kappa_n at YCXC points 
         self.dqdx_n_YCXC = (np.roll(np.roll(self.qbar_n,-1,0),-1,1) + np.roll(self.qbar_n,-1,1) - \

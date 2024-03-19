@@ -1595,6 +1595,82 @@ class Barotropic:
         self.Q_F_n = -self.QAdv_n/self.bathy_YCXC + self.QDiff_L_n - (self.Q_n - self.Q_min_array)*self.r_Q 
         self.K_F_n = -self.KAdv_n/self.bathy_YCXC + self.KDiff_L_n - (self.K_n - self.K_min_array)*self.r_K
 
+    def EGEC_test(self):
+        # NOTE: we use the values at time step n here to calculate dQ/dt_n and dK/dt_n so that we can claculate Q_np1 and K_np1
+
+        # interpolate Lambda and K to YGXC and YCXG points. do not calculate at boundaries. 
+        self.Q_n_YGXC = (self.Q_n[1:,:] + self.Q_n[:-1,:])/2 # YGXC [1:-1,:]
+        self.Q_n_YCXG = (self.Q_n[:,1:] + self.Q_n[:,:-1])/2 # YCXG [:,1:-1]
+        self.K_n_YGXC = (self.K_n[1:,:] + self.K_n[:-1,:])/2 # YGXC [1:-1,:]
+        self.K_n_YCXG = (self.K_n[:,1:] + self.K_n[:,:-1])/2 # YCXG [:,1:-1]
+
+        # calculate dqdx at YGXC points
+        self.dqdx_n_YGXC = (self.qbar_n[:,1:] - self.qbar_n[:,:-1])/self.dx # YGXC
+        # calculate dqdy at YCXG points
+        self.dqdy_n_YCXG = (self.qbar_n[1:,:] - self.qbar_n[:-1,:])/self.dy # YCXG
+        # 4 point average of dqdx to YCXG points. pad with zeros on E & W boundaries.
+        self.dqdx_n_YCXG = np.pad((self.dqdx_n_YGXC[1:,:-1] + self.dqdx_n_YGXC[1:,1:] + self.dqdx_n_YGXC[:-1,1:] + self.dqdx_n_YGXC[:-1,:-1])/4,\
+                                  ((0,0),(1,1)),constant_values=0) # YCXG
+        # 4 point average of dqdy to YGXC points. pad with zeros at N & S boundaries.
+        self.dqdy_n_YGXC = np.pad((self.dqdy_n_YCXG[1:,:-1] + self.dqdy_n_YCXG[1:,1:] + self.dqdy_n_YCXG[:-1,:-1] + self.dqdy_n_YCXG[:-1,1:])/4,\
+                                  ((1,1),(0,0)),constant_values=0) # YGXC
+        # calculate mod grad qbar on YGXC
+        self.mod_grad_qbar_n_YGXC = np.sqrt(self.dqdx_n_YGXC**2 + self.dqdy_n_YGXC**2) # YGXC [1:-1,:]
+        # set minimum value
+        self.mod_grad_qbar_n_YGXC = np.where(self.mod_grad_qbar_n_YGXC<self.min_val,\
+                                     self.min_val*np.ones_like(self.mod_grad_qbar_n_YGXC),self.mod_grad_qbar_n_YGXC)
+        # calculate mod grad qbar on YCXG
+        self.mod_grad_qbar_n_YCXG = np.sqrt(self.dqdx_n_YCXG**2 + self.dqdy_n_YCXG**2) # YCXG [:,1:-1]
+        # set minimum value
+        self.mod_grad_qbar_n_YCXG = np.where(self.mod_grad_qbar_n_YCXG<self.min_val,\
+                                     self.min_val*np.ones_like(self.mod_grad_qbar_n_YCXG),self.mod_grad_qbar_n_YCXG)
+        # calculate kappa_q at YGXC and YCXG points. Set to zero on boundaries for zero flux BC. 
+        self.kappa_n_YGXC = 2*self.gamma_q*np.sqrt(self.Q_n_YGXC*self.K_n_YGXC)/self.mod_grad_qbar_n_YGXC[1:-1,:] # YGXC [1:-1,:]
+        self.kappa_n_YCXG = 2*self.gamma_q*np.sqrt(self.Q_n_YCXG*self.K_n_YCXG)/self.mod_grad_qbar_n_YCXG[:,1:-1] # YCXG [:,1:-1]
+        # set kappa_n_YGXC to zero on the northern and southern boundaries
+        self.kappa_n_YGXC = np.pad(self.kappa_n_YGXC,((1,1),(0,0)),constant_values=0) # YGXC [:,:]
+        # set kappa_n_YCXG to zero on the eastern and western boundaries 
+        self.kappa_n_YCXG = np.pad(self.kappa_n_YCXG,((0,0),(1,1)),constant_values=0) # YCXG [:,:]
+
+        # calculate qu_EDDY = bar{q'u'} at YCXG points. 
+        self.qu_EDDY_n_YCXG = -self.kappa_n_YCXG*self.dqdx_n_YCXG # YCXG [:,:]
+        # calculate qv_EDDY = bar{q'v'} at YCXG points
+        self.qv_EDDY_n_YGXC = -self.kappa_n_YGXC*self.dqdy_n_YGXC # YGXC [:,:]
+        # calculate bar{q'u'}dqdx at YGXC points
+        self.enstrophyGen_n_x_YCXG = self.qu_EDDY_n_YCXG*self.dqdx_n_YCXG # YGXC
+        # calculate bqr{q'v'}dqdy at YCXG points
+        self.enstrophyGen_n_y_YGXC = self.qv_EDDY_n_YGXC*self.dqdy_n_YGXC # YCXG
+        # calculate enstrophy generation at YCXC points 
+        self.enstrophyGen_n = (self.enstrophyGen_n_x_YCXG[:,1:] + self.enstrophyGen_n_x_YCXG[:,:-1] + self.enstrophyGen_n_y_YGXC[1:,:] + self.enstrophyGen_n_y_YGXC[:-1,:])/2 # YCXC
+
+        # calculate dpsidx at YGXC points 
+        self.dpsidx_n_YGXC = (self.psibar_n[:,1:] - self.psibar_n[:,:-1])/self.dx # YGXC
+        # calculate dpsidy at YCXG points
+        self.dpsidy_n_YCXG = (self.psibar_n[1:,:] - self.psibar_n[:-1,:])/self.dy # YCXG
+        # 4 point average of dpsidx to YCXG points. pad zeros on E & W boundaries.
+        self.dpsidx_n_YCXG = np.pad((self.dpsidx_n_YGXC[1:,:-1] + self.dpsidx_n_YGXC[1:,1:] + self.dpsidx_n_YGXC[:-1,1:] + self.dpsidx_n_YGXC[:-1,:-1])/4,\
+                                    ((0,0),(1,1)),constant_values=0) # YCXG
+        # 4 point average of dpsidy to YGXC points. pad zeros on N and boundaries
+        self.dpsidy_n_YGXC = np.pad((self.dpsidy_n_YCXG[1:,:-1] + self.dpsidy_n_YCXG[1:,1:] + self.dpsidy_n_YCXG[:-1,:-1] + self.dpsidy_n_YCXG[:-1,1:])/4,\
+                                    ((1,1),(0,0)),constant_values=0) # YGXC
+        # calculate bar{q'u'}dpsidx at YCXG points
+        self.energyConv_n_x_YCXG = self.qu_EDDY_n_YCXG*self.dpsidx_n_YCXG  # YGXC
+        # calculate bar{q'v'}dpsidy at YGXC points
+        self.energyConv_n_y_YGXC = self.qv_EDDY_n_YGXC*self.dpsidy_n_YGXC # YCXG
+        # calculate energy conversion at YCXC points 
+        self.energyConv_n = (self.energyConv_n_x_YCXG[:,1:] + self.energyConv_n_x_YCXG[:,:-1] + self.energyConv_n_y_YGXC[1:,:] + self.energyConv_n_y_YGXC[:-1,:])/2
+
+        # calculate kappa_n at YCXC points 
+        self.dqdx_n_YCXC = (self.qbar_n[1:,1:] + self.qbar_n[:-1,1:] - self.qbar_n[1:,:-1] - self.qbar_n[:-1,:-1])/(2*self.dx) # YCXC
+        self.dqdy_n_YCXC = (self.qbar_n[1:,1:] + self.qbar_n[1:,:-1] - self.qbar_n[:-1,1:] - self.qbar_n[:-1,:-1])/(2*self.dy) # YCXC
+        self.mod_grad_qbar_n_YCXC = np.sqrt(self.dqdx_n_YCXC**2 + self.dqdy_n_YCXC**2) # YCXC
+        self.kappa_n = 2*self.gamma_q*np.sqrt(self.Q_n*self.K_n)/self.mod_grad_qbar_n_YCXC # YCXC
+
+        # sum variables
+        self.kappa_sum += self.kappa_n
+        self.enstrophyGen_sum += self.enstrophyGen_n 
+        self.energyConv_sum += self.energyConv_n
+
         
 
     def EGEC(self):
@@ -1710,8 +1786,8 @@ class Barotropic:
         backscatter_integrand_YCXC = (backscatter_integrand[1:,1:] + backscatter_integrand[1:,:-1] + \
             backscatter_integrand[:-1,1:] + backscatter_integrand[:-1,:-1])/4 # YCXC
         backscatter_integral = np.sum(backscatter_integrand_YCXC*self.dx*self.dy) # volume integral
-        self.KE_backscatter_n = backscatter_integral/self.volume_YCXC # volume average
-        self.KE_backscatter_sum = self.KE_backscatter_sum + self.KE_backscatter_n*self.dt
+        self.KE_backscatter_n = self.backscatter_frac*(backscatter_integral/self.volume_YCXC) # volume average
+
 
         # add to K_F_n
         self.K_F_n = self.K_F_n - self.KE_backscatter_n*np.ones_like(self.K_n)
@@ -1744,6 +1820,19 @@ class Barotropic:
 
         self.eddyFluxes_n = (1/self.d)*(self.bathy_YCXG[1:,1:-1]*self.qv_EDDY_n_YCXG[1:,1:-1] + self.bathy_YGXC[1:-1,1:]*self.qu_EDDY_n_YGXC[1:-1,1:] - \
                                         self.bathy_YCXG[:-1,1:-1]*self.qv_EDDY_n_YCXG[:-1,1:-1] - self.bathy_YGXC[1:-1,:-1]*self.qu_EDDY_n_YGXC[1:-1,:-1])
+        self.eddyFluxes_n = np.pad(self.eddyFluxes_n,((1,1)),constant_values=0)
+
+    def eddyFluxes_scheme_TEST(self):
+
+        # 4 point interpolation of qu_EDDY_YCXG to YGXC. Do not calculate at boundaries. 
+        self.qu_EDDY_n_YGXC = (self.qu_EDDY_n_YCXG[1:,:-1] + self.qu_EDDY_n_YCXG[1:,1:] + self.qu_EDDY_n_YCXG[:-1,:-1] + self.qu_EDDY_n_YCXG[:-1,1:])/4 # YGXC
+
+        # 4 point interpolation of qv_EDDY_YGXC to YCXG. Do not calculate at boundaries.
+        self.qv_EDDY_n_YCXG = (self.qv_EDDY_n_YGXC[1:,:-1] + self.qv_EDDY_n_YGXC[1:,1:] + self.qv_EDDY_n_YGXC[:-1,1:] + self.qv_EDDY_n_YGXC[:-1,:-1])/4 # YCXG
+
+
+        self.eddyFluxes_n = (1/self.d)*(self.bathy_YCXG[1:,1:-1]*self.qv_EDDY_n_YCXG[1:,:] + self.bathy_YGXC[1:-1,1:]*self.qu_EDDY_n_YGXC[:,1:] - \
+                                        self.bathy_YCXG[:-1,1:-1]*self.qv_EDDY_n_YCXG[:-1,:] - self.bathy_YGXC[1:-1,:-1]*self.qu_EDDY_n_YGXC[:,:-1])
         self.eddyFluxes_n = np.pad(self.eddyFluxes_n,((1,1)),constant_values=0)
 
     def noEddyFluxes(self):
