@@ -329,6 +329,10 @@ class Barotropic:
             self.u_MEAN = np.zeros((len_T_MEAN,self.NyC,self.NxG))
             self.v_MEAN = np.zeros((len_T_MEAN,self.NyG,self.NxC))
 
+            # parameters for energy checking
+            self.q_biharm = np.zeros((len_T+1,self.NyG,self.NxG))
+            self.psi_biharm = np.zeros((len_T+1,self.NyG,self.NxG))
+
             # create diagnostic parameters
             # method for calculating diagnostics e.g. xi_u
             # variables:
@@ -381,19 +385,6 @@ class Barotropic:
             self.BD_n = np.zeros_like(self.xibar_n)
             self.zeta_n = np.zeros_like(self.xibar_n)
             self.psiYCXC_n = np.zeros((self.Ny,self.Nx))
-
-            # parameters for checking enstrophy issue 
-            # delete once issue is solved
-            self.biharm_term = np.zeros((len_T+1,self.NyG,self.NxG))
-            self.advection = np.zeros((len_T+1,self.NyG,self.NxG))
-            self.q_biharm = np.zeros((len_T+1,self.NyG,self.NxG))
-            self.psi_biharm = np.zeros((len_T+1,self.NyG,self.NxG))
-            self.Q_diffusion = np.zeros((len_T+1,self.NyC,self.NxC))
-            self.K_diffusion = np.zeros((len_T+1,self.NyC,self.NxC))
-            self.Q_damping = np.zeros((len_T+1,self.NyC,self.NxC))
-            self.K_damping = np.zeros((len_T+1,self.NyC,self.NxC))
-            self.Q_advection = np.zeros((len_T+1,self.NyC,self.NxC))
-            self.K_advection = np.zeros((len_T+1,self.NyC,self.NxC))
 
             # calculate wind stress
 
@@ -527,6 +518,14 @@ class Barotropic:
                     self.KE_backscatter_sum = 0
                     self.KE_backscatter_MEAN = np.zeros(len_T_MEAN)
 
+                    # parameters for checking consistencies
+                    self.Q_diffusion = np.zeros((len_T+1,self.NyC,self.NxC))
+                    self.K_diffusion = np.zeros((len_T+1,self.NyC,self.NxC))
+                    self.Q_damping = np.zeros((len_T+1,self.NyC,self.NxC))
+                    self.K_damping = np.zeros((len_T+1,self.NyC,self.NxC))
+                    self.Q_advection = np.zeros((len_T+1,self.NyC,self.NxC))
+                    self.K_advection = np.zeros((len_T+1,self.NyC,self.NxC))
+
                 
             else:
                 self.Q_0 = np.zeros((self.NyC,self.NxC))
@@ -614,6 +613,8 @@ class Barotropic:
                         self.psibar[self.index] = self.psibar_np1
                         self.ubar[self.index] = self.ubar_np1
                         self.vbar[self.index] = self.vbar_np1
+                        self.q_biharm[self.index] = self.qbar_n*self.dissipation_n 
+                        self.psi_biharm[self.index] = self.psibar_n*self.dissipation_n
 
                         # run diagnostics 
                         for var in diags:
@@ -633,17 +634,12 @@ class Barotropic:
 
                             # variables for enstrophy issue 
                             # delete once problem solved
-                            self.energyCheck[self.index-1] = self.psibar_n*self.adv_n
-                            self.biharm_term[self.index-1] = self.dissipation_n
-                            self.advection[self.index-1] = self.adv_n
-                            self.q_biharm[self.index-1] = self.qbar_n*self.dissipation_n 
-                            self.psi_biharm[self.index-1] = self.psibar_n*self.dissipation_n
-                            self.Q_diffusion[self.index-1] = self.QDiff_L_n
-                            self.K_diffusion[self.index-1] = self.KDiff_L_n 
-                            self.Q_advection[self.index-1] = self.QAdv_n
-                            self.K_advection[self.index-1] = self.KAdv_n
-                            self.Q_damping[self.index-1] = (self.Q_n - self.Q_min_array)*self.r_Q
-                            self.K_damping[self.index-1] = (self.K_n - self.K_min_array)*self.r_K
+                            self.Q_diffusion[self.index] = self.QDiff_L_n
+                            self.K_diffusion[self.index] = self.KDiff_L_n 
+                            self.Q_advection[self.index] = self.QAdv_n
+                            self.K_advection[self.index] = self.KAdv_n
+                            self.Q_damping[self.index] = (self.Q_n - self.Q_min_array)*self.r_Q
+                            self.K_damping[self.index] = (self.K_n - self.K_min_array)*self.r_K
 
                     # DUMP MEAN DATA
                     if kw.get('t')%kw.get('meanDumpFreq') == 0:
@@ -1238,21 +1234,6 @@ class Barotropic:
     ##########################################################################  
 
     def advection_xi(self):
-
-        # interpolate psi onto cell centres
-        self.psiYCXC_n = (self.psibar_n[:-1,:-1] + self.psibar_n[:-1,1:] + self.psibar_n[1:,:-1] + self.psibar_n[1:,1:])/4
-
-        # calculate area average of advection term 
-        # area average is take over the grid cell centred at the vorticity point, away from the boundaries
-        '''self.adv_n = (1/(self.d**2))*(((self.psiYCXC_n[1:,1:] - self.psiYCXC_n[1:,:-1])*\
-            (self.zeta_n[1:-1,1:-1] + self.zeta_n[2:,1:-1]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[2:,1:-1]) - \
-                ((self.psiYCXC_n[1:,1:] - self.psiYCXC_n[:-1,1:])*\
-                    (self.zeta_n[1:-1,1:-1] + self.zeta_n[1:-1,2:]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[1:-1,2:]) - \
-                        ((self.psiYCXC_n[:-1,1:] - self.psiYCXC_n[:-1,:-1])*\
-                            (self.zeta_n[1:-1,1:-1] + self.zeta_n[:-2,1:-1]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[:-2,1:-1]) + \
-                                ((self.psiYCXC_n[1:,:-1] - self.psiYCXC_n[:-1,:-1])*\
-                                    (self.zeta_n[1:-1,1:-1] + self.zeta_n[1:-1,:-2]))/(self.bathy_np[1:-1,1:-1] + self.bathy_np[1:-1,:-2]))'''
-    
         
         self.adv_n = (-1/(12*self.d**2))*((self.psibar_n[:-2,1:-1] + self.psibar_n[:-2,2:] - self.psibar_n[2:,1:-1] - self.psibar_n[2:,2:])*(self.qbar_n[1:-1,2:] - self.qbar_n[1:-1,1:-1]) + \
                                          (self.psibar_n[:-2,:-2] + self.psibar_n[:-2,1:-1] - self.psibar_n[2:,:-2] - self.psibar_n[2:,1:-1])*(self.qbar_n[1:-1,1:-1] - self.qbar_n[1:-1,:-2]) + \
@@ -1268,7 +1249,11 @@ class Barotropic:
         self.adv_n = np.pad(self.adv_n,((1,1)),constant_values=0)
 
     def tracer_advect(self,var,var_return):
+
         var = np.array(var)
+
+        # interpolate psi onto cell centres
+        self.psiYCXC_n = (self.psibar_n[:-1,:-1] + self.psibar_n[:-1,1:] + self.psibar_n[1:,:-1] + self.psibar_n[1:,1:])/4
 
         adv_n = (1/(2*self.d**2))*(\
             (var[1:-1,1:-1] + var[2:,1:-1])*(self.psiYCXC_n[1:,1:] - self.psiYCXC_n[1:,:-1]) - \

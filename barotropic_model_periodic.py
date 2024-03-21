@@ -320,6 +320,10 @@ class Barotropic:
             self.diffusion_B_n = np.zeros_like(self.xibar_n)
             self.zeta_n = np.zeros_like(self.xibar_n)
 
+            # energy variables
+            self.q_biharm = np.zeros((len_T+1,self.NyG,self.NxG))
+            self.psi_biharm = np.zeros((len_T+1,self.NyG,self.NxG))
+
             # calculate wind stress
 
             tau = [(-tau_0*np.cos((2*np.pi*y)/(self.Ly)))*np.ones(self.NxG) for y in self.YG]
@@ -447,10 +451,15 @@ class Barotropic:
                     self.KE_backscatter_n = 0
                     self.KE_backscatter_sum = 0
                     self.KE_backscatter_MEAN = np.zeros(len_T_MEAN)
-                    self.q_biharm = np.zeros((len_T+1,self.NyG,self.NxG))
-                    self.psi_biharm = np.zeros((len_T+1,self.NyG,self.NxG))
 
-                
+                    # consistency checking variables
+                    self.Q_diffusion = np.zeros((len_T+1,self.NyC,self.NxC))
+                    self.K_diffusion = np.zeros((len_T+1,self.NyC,self.NxC))
+                    self.Q_advection = np.zeros((len_T+1,self.NyC,self.NxC))
+                    self.K_advection = np.zeros((len_T+1,self.NyC,self.NxC))
+                    self.Q_damping = np.zeros((len_T+1,self.NyC,self.NxC))
+                    self.K_damping = np.zeros((len_T+1,self.NyC,self.NxC))
+                    
             else:
                 self.Q_0 = np.zeros((self.NyC,self.NxC))
                 self.Q_n = np.zeros((self.NyC,self.NxC))
@@ -458,17 +467,6 @@ class Barotropic:
                 self.K_0 = np.zeros((self.NyC,self.NxC))
                 self.K_n = np.zeros((self.NyC,self.NxC))
                 self.K_np1 = np.zeros((self.NyC,self.NxC))
-
-            self.Q_diffusion = np.zeros((len_T+1,self.NyC,self.NxC))
-            self.K_diffusion = np.zeros((len_T+1,self.NyC,self.NxC))
-            self.Q_advection = np.zeros((len_T+1,self.NyC,self.NxC))
-            self.K_advection = np.zeros((len_T+1,self.NyC,self.NxC))
-            self.Q_damping = np.zeros((len_T+1,self.NyC,self.NxC))
-            self.K_damping = np.zeros((len_T+1,self.NyC,self.NxC))
-
-            self.xi_diffusion_B = np.zeros((len_T+1,self.NyG,self.NxG))
-            self.xi_diffusion_L = np.zeros((len_T+1,self.NyG,self.NxG))
-            self.xi_advection = np.zeros((len_T+1,self.NyG,self.NxG))
 
             # run scheemeDict function to get schemeFunctionsDict which contains functions to run if scheme is True or False
             self.schemeDict()
@@ -542,9 +540,8 @@ class Barotropic:
                         self.psibar[self.index] = self.psibar_np1
                         self.ubar[self.index] = self.ubar_np1
                         self.vbar[self.index] = self.vbar_np1
-                        self.xi_diffusion_B[self.index] = self.diffusion_B_n
-                        self.xi_diffusion_L[self.index] = self.diffusion_L_n
-                        self.xi_advection[self.index] = self.adv_n
+                        self.q_biharm[self.index] = self.qbar_n*self.diffusion_B_n 
+                        self.psi_biharm[self.index] = self.psibar_n*self.diffusion_B_n
 
                         # run diagnostics 
                         for var in diags:
@@ -561,16 +558,10 @@ class Barotropic:
                             self.energyConv[self.index] = self.energyConv_n
                             self.eddyFluxes[self.index] = self.eddyFluxes_n
                             self.KE_backscatter[self.index] = self.KE_backscatter_n
-                            self.q_biharm[self.index-1] = self.qbar_n*self.diffusion_B_n 
-                            self.psi_biharm[self.index-1] = self.psibar_n*self.diffusion_B_n
+                            
 
                             # variables for enstrophy issue 
                             # delete once problem solved
-                            '''self.energyCheck[self.index-1] = self.psibar_n*self.adv_n
-                            self.biharm_term[self.index-1] = self.diffusion_B_n
-                            self.advection[self.index-1] = self.adv_n
-                            self.q_biharm[self.index-1] = self.qbar_n*self.diffusion_B_n 
-                            self.psi_biharm[self.index-1] = self.psibar_n*self.diffusion_B_n'''
                             self.Q_diffusion[self.index] = self.QDiff_L_n
                             self.K_diffusion[self.index] = self.KDiff_L_n 
                             self.Q_advection[self.index] = self.QAdv_n
