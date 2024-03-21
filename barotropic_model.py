@@ -132,8 +132,8 @@ class Barotropic:
             psi_remove = psi[1:-1,1:-1]
             psi_pad = np.pad(psi_remove,((1,1)),constant_values=0)
             self.psibar_0 = psi_pad
-
             self.calc_UV(psi=self.psibar_0,u_return='ubar_0',v_return='vbar_0')
+            self.xi_from_psi()
 
     def init_from_previous(self,xi,F_nm1,F_nm2):
         try:
@@ -902,66 +902,6 @@ class Barotropic:
                     'XG': self.XG
                 }
             )
-
-            dataset_return['Q_damping'] = xr.DataArray(
-                self.Q_damping.astype('float64'),
-                dims = ['T','YC','XC'],
-                coords = {
-                    'T': self.T,
-                    'YC': self.YC,
-                    'XC': self.XC
-                }
-            )
-
-            dataset_return['K_damping'] = xr.DataArray(
-                self.K_damping.astype('float64'),
-                dims = ['T','YC','XC'],
-                coords = {
-                    'T': self.T,
-                    'YC': self.YC,
-                    'XC': self.XC
-                }
-            )
-
-            dataset_return['Q_diffusion'] = xr.DataArray(
-                self.Q_diffusion.astype('float64'),
-                dims = ['T','YC','XC'],
-                coords = {
-                    'T': self.T,
-                    'YC': self.YC,
-                    'XC': self.XC
-                }
-            )
-
-            dataset_return['K_diffusion'] = xr.DataArray(
-                self.K_diffusion.astype('float64'),
-                dims = ['T','YC','XC'],
-                coords = {
-                    'T': self.T,
-                    'YC': self.YC,
-                    'XC': self.XC
-                }
-            )
-
-            dataset_return['Q_advection'] = xr.DataArray(
-                self.Q_advection.astype('float64'),
-                dims = ['T','YC','XC'],
-                coords = {
-                    'T': self.T,
-                    'YC': self.YC,
-                    'XC': self.XC
-                }
-            )
-
-            dataset_return['K_advection'] = xr.DataArray(
-                self.K_advection.astype('float64'),
-                dims = ['T','YC','XC'],
-                coords = {
-                    'T': self.T,
-                    'YC': self.YC,
-                    'XC': self.XC
-                }
-            )
             
 
             # add diagnostics data to dataset_return
@@ -1113,6 +1053,66 @@ class Barotropic:
                     dims = ['T_MEAN'],
                     coords = {
                         'T_MEAN': self.T_MEAN
+                    }
+                )
+
+                dataset_return['Q_damping'] = xr.DataArray(
+                    self.Q_damping.astype('float64'),
+                    dims = ['T','YC','XC'],
+                    coords = {
+                        'T': self.T,
+                        'YC': self.YC,
+                        'XC': self.XC
+                    }
+                )
+
+                dataset_return['K_damping'] = xr.DataArray(
+                    self.K_damping.astype('float64'),
+                    dims = ['T','YC','XC'],
+                    coords = {
+                        'T': self.T,
+                        'YC': self.YC,
+                        'XC': self.XC
+                    }
+                )
+
+                dataset_return['Q_diffusion'] = xr.DataArray(
+                    self.Q_diffusion.astype('float64'),
+                    dims = ['T','YC','XC'],
+                    coords = {
+                        'T': self.T,
+                        'YC': self.YC,
+                        'XC': self.XC
+                    }
+                )
+
+                dataset_return['K_diffusion'] = xr.DataArray(
+                    self.K_diffusion.astype('float64'),
+                    dims = ['T','YC','XC'],
+                    coords = {
+                        'T': self.T,
+                        'YC': self.YC,
+                        'XC': self.XC
+                    }
+                )
+
+                dataset_return['Q_advection'] = xr.DataArray(
+                    self.Q_advection.astype('float64'),
+                    dims = ['T','YC','XC'],
+                    coords = {
+                        'T': self.T,
+                        'YC': self.YC,
+                        'XC': self.XC
+                    }
+                )
+
+                dataset_return['K_advection'] = xr.DataArray(
+                    self.K_advection.astype('float64'),
+                    dims = ['T','YC','XC'],
+                    coords = {
+                        'T': self.T,
+                        'YC': self.YC,
+                        'XC': self.XC
                     }
                 )
 

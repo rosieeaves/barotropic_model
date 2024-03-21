@@ -1054,7 +1054,7 @@ class Barotropic:
                     }
                 )
 
-                dataset_return['q_biharmonic'] = xr.DataArray(
+            dataset_return['q_biharmonic'] = xr.DataArray(
                 self.q_biharm.astype('float64'),
                 dims = ['T','YG','XG'],
                 coords = {
