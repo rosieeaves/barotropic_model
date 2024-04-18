@@ -1024,36 +1024,6 @@ class Barotropic:
                     }
                 )
 
-                dataset_return['xi_diffusion_B'] = xr.DataArray(
-                    self.xi_diffusion_B.astype('float64'),
-                    dims = ['T','YG','XG'],
-                    coords = {
-                        'T': self.T,
-                        'YG': self.YG,
-                        'XG': self.XG
-                    }
-                )
-
-                dataset_return['xi_diffusion_L'] = xr.DataArray(
-                    self.xi_diffusion_L.astype('float64'),
-                    dims = ['T','YG','XG'],
-                    coords = {
-                        'T': self.T,
-                        'YG': self.YG,
-                        'XG': self.XG
-                    }
-                )
-
-                dataset_return['xi_advection'] = xr.DataArray(
-                    self.xi_advection.astype('float64'),
-                    dims = ['T','YG','XG'],
-                    coords = {
-                        'T': self.T,
-                        'YG': self.YG,
-                        'XG': self.XG
-                    }
-                )
-
             dataset_return['q_biharmonic'] = xr.DataArray(
                 self.q_biharm.astype('float64'),
                 dims = ['T','YG','XG'],
@@ -1647,16 +1617,16 @@ class Barotropic:
 
 #%%
 
-'''d = 5000 # m
-Nx = 200
-Ny = 200
+'''d = 50000 # m
+Nx = 20
+Ny = 20
 Lx = d*Nx # m
 Ly = d*Ny # m
 f0 = 0.7E-4 # s-1
 beta = 0 # m-1s-1
 # VORTICITY PARAMETERS
 r_BD = 0
-mu_xi_B = 1.E8
+mu_xi_B = 1.E11
 mu_xi_L = 0
 # EDDY SCHEME PARAMETERS
 mu_PAR = 500
@@ -1673,12 +1643,12 @@ tau_0 = 0
 rho_0 = 1025
 # TIME STEPPING
 dt = 900
-Nt = 9600
+Nt = 96
 dumpFreq =  86400
 meanDumpFreq = 864000
 diagnostics = ['xi_u','xi_v','u_u','v_v','xi_xi','q','q_q']
 
-bathy_random = np.load('./../barotropic_model_analysis/model_data/periodic/FDT_5km/randomTopography_5km.npy')
+bathy_random = np.load('./../barotropic_model_analysis/model_data/chapter2/FDT_50km/periodic/randomTopography_50km_periodic.npy')
 #bathy_flat = 500*np.ones((Ny+1,Nx+1))
 
 #bathy_random = np.ones((Ny,Nx))
@@ -1687,12 +1657,13 @@ domain = Barotropic(d=d,Nx=Nx,Ny=Ny,bathy=bathy_random,f0=f0,beta=beta)
 
 #%%
 
-init_psi = np.load('./../barotropic_model_analysis/model_data/periodic/FDT_5km/initPsi_5km.npy')
+#init_psi = np.load('./../barotropic_model_analysis/model_data/periodic/FDT_5km/initPsi_5km.npy')
+init_psi = np.zeros((20,20))
 
-domain.init_psi(init_psi)
+domain.init_psi(init_psi)'''
 
 #%%
-data = domain.model(dt=dt,\
+'''data = domain.model(dt=dt,\
     Nt=Nt,\
         r_BD=r_BD,\
             mu_xi_L=mu_xi_L,\
@@ -1702,6 +1673,36 @@ data = domain.model(dt=dt,\
                             dumpFreq=dumpFreq,\
                                 meanDumpFreq=meanDumpFreq,\
                                     diags=diagnostics)'''
+
+#%%
+
+'''init_K = 1.8E-4*np.ones((Ny,Nx))
+init_Q = 1.E-20*np.ones((Ny,Nx))
+
+
+data = domain.model(dt=dt,\
+    Nt=Nt,\
+        dumpFreq=dumpFreq,\
+            meanDumpFreq=meanDumpFreq,
+                r_BD=r_BD,\
+                    mu_xi_L=mu_xi_L,\
+                        mu_xi_B=mu_xi_B,\
+                            tau_0=tau_0,\
+                                rho_0=rho_0,\
+                                    eddy_scheme='EGECAD',\
+                                        init_K=init_K,\
+                                            init_Q=init_Q,\
+                                                gamma_q=gamma_q,\
+                                                    mu_PAR=mu_PAR,\
+                                                        r_Q=r_Q,\
+                                                            r_K=r_K,\
+                                                                Q_min=Q_min,\
+                                                                    K_min=K_min,\
+                                                                        min_val=min_val,\
+                                                                            max_val = max_val,\
+                                                                                diags=diagnostics)'''
+
+
 
 #%%
 
