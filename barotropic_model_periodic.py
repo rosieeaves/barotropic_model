@@ -291,24 +291,31 @@ class Barotropic:
             for var in diags:
                 # create array to save data in every dumpFreq e.g. self.xi_u. 
                 # Should be added to every dumpFreq seconds.
-                num_Y = len(getattr(self,self.diagnosticsCoordDict[var][1]))
-                num_X = len(getattr(self,self.diagnosticsCoordDict[var][2]))
-                setattr(self,var,np.zeros((len_T+1,num_Y,num_X)))
+
+                num_Y = len(self.__dict__[self.diagnosticsCoordDict[var][1]])
+                num_X = len(self.__dict__[self.diagnosticsCoordDict[var][2]])
+                self.__dict__[var] = np.zeros((len_T+1,num_Y,num_X))
+                #setattr(self,var,np.zeros((len_T+1,num_Y,num_X)))
                 # create variable for calculating np1 time step, e.g. self.xi_u_np1. Initialise with zeros. 
                 # Should be updated every timestep.
-                setattr(self,self.diagnosticsNP1Dict[var],np.zeros((num_Y,num_X)))
+                self.__dict__[self.diagnosticsNP1Dict[var]] = np.zeros((num_Y,num_X))
+                #setattr(self,self.diagnosticsNP1Dict[var],np.zeros((num_Y,num_X)))
                 # calculate value at time zero, set it to var_np1
                 self.diagnosticsFunctionsDict[var](xi=self.xibar_0,psi=self.psibar_0,u=self.ubar_0,v=self.vbar_0,var_return=self.diagnosticsNP1Dict[var])
                 # put value at time zero in 0th index of saved data array
-                getattr(self,var)[0] = getattr(self,self.diagnosticsNP1Dict[var]).copy()
+                self.__dict__[var][0] = self.__dict__[self.diagnosticsNP1Dict[var]].copy()
+                #getattr(self,var)[0] = getattr(self,self.diagnosticsNP1Dict[var]).copy()
                 # reset var_np1 to zero
-                setattr(self,self.diagnosticsNP1Dict[var],np.zeros((num_Y,num_X)))
+                self.__dict__[self.diagnosticsNP1Dict[var]] = np.zeros((num_Y,num_X))
+                #setattr(self,self.diagnosticsNP1Dict[var],np.zeros((num_Y,num_X)))
                 # create array to save MEAN data in, e.g. self.xi_u_MEAN. Initialise with zeros. 
                 # Should be added to every meanDumpFreq seconds.
-                setattr(self,self.diagnosticsMeanDict[var],np.zeros((len_T_MEAN,num_Y,num_X)))
+                self.__dict__[self.diagnosticsMeanDict[var]] = np.zeros((len_T_MEAN,num_Y,num_X))
+                #setattr(self,self.diagnosticsMeanDict[var],np.zeros((len_T_MEAN,num_Y,num_X)))
                 # create variable for summing snapshot data for use in calculating mean, e.g. self.xi_u_sum. 
                 # Should be updated every timestep. 
-                setattr(self,self.diagnosticsSumDict[var],getattr(self,var)[0])
+                self.__dict__[self.diagnosticsSumDict[var]] = self.__dict__[var][0].copy()
+                #setattr(self,self.diagnosticsSumDict[var],getattr(self,var)[0])
             
             # initialise parameters for time stepping
             self.F_n = np.zeros_like(self.xibar_n)
@@ -554,7 +561,7 @@ class Barotropic:
                             self.Q[self.index] = self.Q_np1
                             self.K[self.index] = self.K_np1
                             self.kappa[self.index] = self.kappa_n
-                            self.enstrophyGen[self.index] = self.enstrophyGen_n 
+                            self.enstrophyGen[self.index] = self.enstrophyGen_n
                             self.energyConv[self.index] = self.energyConv_n
                             self.eddyFluxes[self.index] = self.eddyFluxes_n
                             self.KE_backscatter[self.index] = self.KE_backscatter_n
@@ -563,7 +570,7 @@ class Barotropic:
                             # variables for enstrophy issue 
                             # delete once problem solved
                             self.Q_diffusion[self.index] = self.QDiff_L_n
-                            self.K_diffusion[self.index] = self.KDiff_L_n 
+                            self.K_diffusion[self.index] = self.KDiff_L_n
                             self.Q_advection[self.index] = self.QAdv_n
                             self.K_advection[self.index] = self.KAdv_n
                             self.Q_damping[self.index] = (self.Q_n - self.Q_min_array)*self.r_Q
@@ -1617,16 +1624,16 @@ class Barotropic:
 
 #%%
 
-'''d = 50000 # m
-Nx = 20
-Ny = 20
+'''d = 5000 # m
+Nx = 200
+Ny = 200
 Lx = d*Nx # m
 Ly = d*Ny # m
 f0 = 0.7E-4 # s-1
 beta = 0 # m-1s-1
 # VORTICITY PARAMETERS
 r_BD = 0
-mu_xi_B = 1.E11
+mu_xi_B = 1.E8
 mu_xi_L = 0
 # EDDY SCHEME PARAMETERS
 mu_PAR = 500
@@ -1643,12 +1650,12 @@ tau_0 = 0
 rho_0 = 1025
 # TIME STEPPING
 dt = 900
-Nt = 96
-dumpFreq =  86400
+Nt = 2
+dumpFreq =  900
 meanDumpFreq = 864000
-diagnostics = ['xi_u','xi_v','u_u','v_v','xi_xi','q','q_q']
+diagnostics = ['xi_u','xi_v','u_u','v_v','xi_xi','q','q_q','u_YGXG']
 
-bathy_random = np.load('./../barotropic_model_analysis/model_data/chapter2/FDT_50km/periodic/randomTopography_50km_periodic.npy')
+bathy_random = np.load('./../barotropic_model_analysis/model_data/chapter2/FDT_5km/periodic/randomTopography_5km_periodic.npy')
 #bathy_flat = 500*np.ones((Ny+1,Nx+1))
 
 #bathy_random = np.ones((Ny,Nx))
@@ -1657,13 +1664,12 @@ domain = Barotropic(d=d,Nx=Nx,Ny=Ny,bathy=bathy_random,f0=f0,beta=beta)
 
 #%%
 
-#init_psi = np.load('./../barotropic_model_analysis/model_data/periodic/FDT_5km/initPsi_5km.npy')
-init_psi = np.zeros((20,20))
+init_psi = np.load('./../barotropic_model_analysis/model_data/chapter2/FDT_5km/periodic/initPsi_5km_periodic.npy')
 
-domain.init_psi(init_psi)'''
+domain.init_psi(init_psi)
 
 #%%
-'''data = domain.model(dt=dt,\
+data = domain.model(dt=dt,\
     Nt=Nt,\
         r_BD=r_BD,\
             mu_xi_L=mu_xi_L,\
@@ -1673,6 +1679,7 @@ domain.init_psi(init_psi)'''
                             dumpFreq=dumpFreq,\
                                 meanDumpFreq=meanDumpFreq,\
                                     diags=diagnostics)'''
+
 
 #%%
 
