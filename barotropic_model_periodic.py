@@ -165,7 +165,7 @@ class Barotropic:
                     r_K=None,min_val=None,max_val=None,kappa_q=None,K_min=None,Q_min=None,backscatter_frac=None,diags=[]):
 
         try:
-            self.psibar_0
+            self.psibar_0 
 
         except AttributeError:
             print('Run init_psi() before running model to generate initial conditions')
