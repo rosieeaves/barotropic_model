@@ -547,7 +547,7 @@ class Barotropic:
 
                 def wrapper(*args,**kwargs):
                     self.zeta_n = np.array((self.f + self.xibar_n))
-                    self.qbar_n = np.array((self.f + self.xibar_n)/self.bathy_np)
+                    self.qbar_n = np.where(self.bathy_np>0,np.array((self.f + self.xibar_n)/self.bathy_np),np.zeros_like(self.xibar_n))
 
                     # CALCULATE VORTICITY AT NEXT TIME STEP
                     # calculate advection term
@@ -1185,8 +1185,9 @@ class Barotropic:
 
     def calc_UV(self,psi,u_return,v_return):
 
-        setattr(self,u_return,-(2/self.d)*((psi[1:,:] - psi[:-1,:])/(self.bathy_np[:-1,:] + self.bathy_np[1:,:])))
-        setattr(self,v_return,(2/self.d)*((psi[:,1:] - psi[:,:-1])/(self.bathy_np[:,:-1] + self.bathy_np[:,1:])))
+
+        setattr(self,u_return,np.pad(-(2/self.d)*((psi[1:,1:-1] - psi[:-1,1:-1])/(self.bathy_np[:-1,1:-1] + self.bathy_np[1:,1:-1])),((0,0),(1,1)),constant_values=0))
+        setattr(self,v_return,np.pad((2/self.d)*((psi[1:-1,1:] - psi[1:-1,:-1])/(self.bathy_np[1:-1,:-1] + self.bathy_np[1:-1,1:])),((1,1),(0,0)),constant_values=0))
 
     ##########################################################################
     # DIFFERENTIATE FUNCTIONS

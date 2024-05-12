@@ -267,10 +267,10 @@ class Barotropic:
             self.vbar[0] = self.vbar_0
 
             # create mean parameters
-            self.xibar_sum = self.xibar_0
-            self.psibar_sum = self.psibar_0
-            self.ubar_sum = self.ubar_0
-            self.vbar_sum = self.vbar_0
+            self.xibar_sum = np.zeros_like(self.xibar_0)
+            self.psibar_sum = np.zeros_like(self.psibar_0)
+            self.ubar_sum = np.zeros_like(self.ubar_0)
+            self.vbar_sum = np.zeros_like(self.vbar_0)
             self.xi_MEAN = np.zeros((len_T_MEAN,self.NyG,self.NxG))
             self.psi_MEAN = np.zeros((len_T_MEAN,self.NyG,self.NxG))
             self.u_MEAN = np.zeros((len_T_MEAN,self.NyC,self.NxG))
@@ -314,7 +314,7 @@ class Barotropic:
                 #setattr(self,self.diagnosticsMeanDict[var],np.zeros((len_T_MEAN,num_Y,num_X)))
                 # create variable for summing snapshot data for use in calculating mean, e.g. self.xi_u_sum. 
                 # Should be updated every timestep. 
-                self.__dict__[self.diagnosticsSumDict[var]] = self.__dict__[var][0].copy()
+                self.__dict__[self.diagnosticsSumDict[var]] = np.zeros_like(self.__dict__[var][0])
                 #setattr(self,self.diagnosticsSumDict[var],getattr(self,var)[0])
             
             # initialise parameters for time stepping
@@ -382,7 +382,7 @@ class Barotropic:
                     self.Q_F_n = np.zeros((self.NyC,self.NxC))
                     self.Q_F_nm1 = np.zeros((self.NyC,self.NxC))
                     self.Q_F_nm2 = np.zeros((self.NyC,self.NxC))
-                    self.Q_sum = self.Q_0
+                    self.Q_sum = np.zeros_like(self.Q_0)
                     self.Q_MEAN = np.zeros((len_T_MEAN,self.NyC,self.NxC))
                     self.QAdv_n = np.zeros((self.NyC,self.NxC))
                     self.QDiff_L_n = np.zeros((self.NyC,self.NxC))
@@ -399,7 +399,7 @@ class Barotropic:
                     self.K_F_n = np.zeros((self.NyC,self.NxC))
                     self.K_F_nm1 = np.zeros((self.NyC,self.NxC))
                     self.K_F_nm2 = np.zeros((self.NyC,self.NxC))
-                    self.K_sum = self.K_0
+                    self.K_sum = np.zeros_like(self.K_0)
                     self.K_MEAN = np.zeros((len_T_MEAN,self.NyC,self.NxC))
                     self.KAdv_n = np.zeros((self.NyC,self.NxC))
                     self.KDiff_L_n = np.zeros((self.NyC,self.NxC))
@@ -1650,9 +1650,9 @@ tau_0 = 0
 rho_0 = 1025
 # TIME STEPPING
 dt = 900
-Nt = 2
+Nt = 10
 dumpFreq =  900
-meanDumpFreq = 864000
+meanDumpFreq = 9000
 diagnostics = ['xi_u','xi_v','u_u','v_v','xi_xi','q','q_q','u_YGXG']
 
 bathy_random = np.load('./../barotropic_model_analysis/model_data/chapter2/FDT_5km/periodic/randomTopography_5km_periodic.npy')
