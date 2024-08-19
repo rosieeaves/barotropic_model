@@ -454,10 +454,10 @@ class Barotropic:
 
                     # backscatter variables
                     self.volume_YCXC = np.sum(self.bathy_YCXC*self.dx*self.dy)
-                    self.KE_backscatter = np.zeros(len_T+1)
-                    self.KE_backscatter_n = 0
-                    self.KE_backscatter_sum = 0
-                    self.KE_backscatter_MEAN = np.zeros(len_T_MEAN)
+                    self.KE_backscatter = np.zeros((len_T+1,self.NyC,self.NxC))
+                    self.KE_backscatter_n = np.zeros((self.NyC,self.NxC))
+                    self.KE_backscatter_sum = np.zeros((self.NyC,self.NxC))
+                    self.KE_backscatter_MEAN = np.zeros((len_T_MEAN,self.NyC,self.NxC))
 
                     # consistency checking variables
                     self.Q_diffusion = np.zeros((len_T+1,self.NyC,self.NxC))
@@ -605,7 +605,7 @@ class Barotropic:
                             self.enstrophyGen_sum = np.zeros_like(self.enstrophyGen_sum)
                             self.energyConv_sum = np.zeros_like(self.energyConv_sum)
                             self.kappa_sum = np.zeros_like(self.kappa_sum)
-                            self.KE_backscatter_sum = 0
+                            self.KE_backscatter_sum = np.zeros_like(self.KE_backscatter_sum)
 
 
 
@@ -957,17 +957,21 @@ class Barotropic:
 
                 dataset_return['KE_backscatter'] = xr.DataArray(
                     self.KE_backscatter.astype('float64'),
-                    dims=['T'],
+                    dims=['T','YC','XC'],
                     coords = {
-                        'T': self.T
+                        'T': self.T,
+                        'YC': self.YC,
+                        'XC': self.XC
                     }
                 )
 
                 dataset_return['KE_backscatter_MEAN'] = xr.DataArray(
                     self.KE_backscatter_MEAN.astype('float64'),
-                    dims = ['T_MEAN'],
+                    dims = ['T_MEAN','YC','XC'],
                     coords = {
-                        'T_MEAN': self.T_MEAN
+                        'T_MEAN': self.T_MEAN,
+                        'YC': self.YC,
+                        'XC': self.XC
                     }
                 )
 
@@ -1566,19 +1570,15 @@ class Barotropic:
         self.K_Q_EGECAD()
 
         # backscatter term
-        self.backscatter_integrand_YGXG = self.psibar_n*self.diffusion_B_n # YGXG
-        self.backscatter_integrand_YCXC = (np.roll(np.roll(self.backscatter_integrand_YGXG,-1,0),-1,1) + \
-                                           np.roll(self.backscatter_integrand_YGXG,-1,0) + \
-                                            np.roll(self.backscatter_integrand_YGXG,-1,1) + \
-                                                self.backscatter_integrand_YGXG)/4 # YCXC
-        # volume integrate
-        self.backscatter_integral = np.sum(self.backscatter_integrand_YCXC*self.dx*self.dy) # YCXC
-        # volume average
-        self.KE_backscatter_n = self.backscatter_integral/self.volume_YCXC # YCXC
+        self.backscatter_YGXG = self.psibar_n*self.diffusion_B_n # YGXG
+        self.KE_backscatter_n = (np.roll(np.roll(self.backscatter_YGXG,-1,0),-1,1) + \
+                                           np.roll(self.backscatter_YGXG,-1,0) + \
+                                            np.roll(self.backscatter_YGXG,-1,1) + \
+                                                self.backscatter_YGXG)/(4*self.bathy_YCXC) # YCXC
         # add to K_F_n
-        self.K_F_n = self.K_F_n - self.KE_backscatter_n*np.ones_like(self.K_n)
+        self.K_F_n = self.K_F_n - self.KE_backscatter_n
 
-        self.KE_backscatter_sum = self.KE_backscatter_sum + self.KE_backscatter_n*self.dt
+        self.KE_backscatter_sum += self.KE_backscatter_n
 
     def timestep_KQ(self,scheme):
 
